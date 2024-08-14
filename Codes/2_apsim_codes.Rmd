@@ -1,0 +1,222 @@
+---
+title: "apsim_codes"
+author: "Emmanuela van Versendaal"
+date: '2022-10-17'
+output: html_document
+---
+
+Example R code for some locations to obtain APSIM simulations. First, soil data from ssurgo and weather data from Kansas Mesonet are obtained. Everything is added to APSIM next generation and then soybean simulation are created.
+
+# Library
+```{r setup, include=FALSE}
+library(tidyverse)
+library(lubridate)
+library(apsimx) # apsim next generation package
+library(patchwork)
+library(gridExtra)
+library(TDPanalysis)
+```
+
+#1. Dataframe with coordinates
+```{r}
+coord <- data.frame(Site = c("Topeka",  "Ottawa", "Assaria")) %>% 
+  mutate(lat = case_when(Site == "Topeka" ~ 39.047119,
+                         Site == "Ottawa" ~ 38.537958,
+                         Site == "Assaria" ~ 38.680259,
+                         TRUE ~ 9999),
+         lon = case_when(Site == "Topeka" ~ -95.675289,
+                         Site == "Ottawa" ~ -95.240096,
+                         Site == "Assaria" ~ -97.605238,
+                         TRUE ~ 9999))
+```
+#2. Download Weather data
+```{r}
+met_testing <- coord %>% 
+  group_by(Site) %>% 
+  mutate(weather = pmap(.l = list(Site, lon, lat),
+                        # Kansas Mesonet  #
+                        .f = ~get_iem_apsim_met(lonlat = c(..2, ..3),                
+                                               dates = c("1981-01-01","2022-01-01"),
+                                               wrt.dir = "../Output/Weather/",
+                                               state = "kansas",
+                                               filename = paste0(..1, ".met"))))
+```
+
+#3. Download Soil data
+
+Obtain soil data from SSURGO of each location.
+
+```{r}
+soil_test <-
+  coord %>%
+  group_by(Site) %>% 
+  unique() %>%
+  mutate(ssurgo1 = pmap(.l = list(Site, lon, lat),
+                        # ssurgo  #
+                        .f = ~ get_ssurgo_soil_profile(lonlat = c(..2, ..3))[[1]][[1]] %>%
+                          mutate(across(2:29, round, 3),
+                                 AirDry = ifelse(AirDry >= LL15, LL15 - 0.01, AirDry)))) %>%
+  mutate(SP_df = ssurgo1 %>% 
+           map(~apsimx_soil_profile(Thickness = .$Thickness,
+                                                 BD = .$BD,
+                                                 AirDry = .$AirDry,
+                                                 LL15 = .$LL15,
+                                                 DUL = .$DUL,
+                                                 SAT = .$SAT,
+                                                 KS = .$KS,
+                                                 Carbon = .$Carbon,
+                                                 FOM = .$FOM,
+                                                 FOM.CN = .$FOM.CN,
+                                                 FBiom = .$FBiom,
+                                                 FInert = .$FInert,
+                                                 NO3N = .$NO3N,
+                                                 NH4N = .$NH4N,
+                                                 PH = .$PH,
+                                                 ParticleSizeClay = .$ParticleSizeClay,
+                                                 ParticleSizeSilt = .$ParticleSizeSilt,
+                                                 ParticleSizeSand = .$ParticleSizeSand,
+                                                 crop.LL = .$Soybean.LL,
+                                                 crops = c("Maize", "Soybean", "Wheat"))))
+```
+
+# 4. Add soil data to APSIM
+```{r}
+soil_test %>%
+  mutate(save = pmap(.l = list(SP_df, site),
+                     .f = ~edit_apsimx_replace_soil_profile(
+                       file = "Soybean.apsimx",
+                       src.dir = "C:/Users/Emmanuela/Desktop/CiampittiLab/Apsim_workshop/Markdown/simulation_testing",
+                       wrt.dir ="C:/Users/Emmanuela/Desktop/CiampittiLab/Apsim_workshop/Markdown/simulation_testing",
+                       soil.profile = ..1,
+                       edit.tag = paste0("-", ..2),
+                       overwrite = FALSE,
+                       verbose = TRUE)))
+```
+
+#5. Add weather data to Apsim file.
+```{r}
+# Add weather data to Apsim file.
+soil_test %>%
+  mutate(weather = pmap(.l = list(SP_df, site),
+                        .f = ~ apsimx::edit_apsimx(file = paste0("Soybean-", ..2, ".apsimx"),
+                                                   src.dir =  "C:/Users/Emmanuela/Desktop/CiampittiLab/Apsim_workshop/Markdown/simulation_testing/",
+                                                   node = "Weather",
+                                                   overwrite = TRUE,
+                                                   value = paste0("C:/Users/Emmanuela/Desktop/CiampittiLab/Apsim_workshop/Markdown/met_testing/",..2,".met"),
+                                                   verbose =TRUE) ))
+```
+
+#6. Simulations
+```{r}
+### Create an excel with simulation data and format ###
+test_sim <- read.csv("../Data/test_sim.csv") %>%
+  rename("population" = `population..seeds.m2.`,
+         "yield" = `yield..kg.ha.`) %>%
+  select(-c(X)) %>%
+  group_by(ID, genotype, site, year, population, SowDate) %>%
+  summarise(year = mean(year)) %>%
+  ungroup(genotype, site, year, population, SowDate) %>%
+  nest()
+
+
+### Simulation ###
+test_sim  %>%
+  # SowingRule- startdate
+  mutate(sim_sd = future_pmap(
+    .l = list(ID, data),
+    .f = ~apsimx::edit_apsimx(
+      file = paste0("Soybean-", ..2$site ,".apsimx"),
+      src.dir = "C:/Users/Emmanuela/Desktop/CiampittiLab/Apsim_workshop/Markdown/simulation_testing/",
+      wrt.dir = "C:/Users/Emmanuela/Desktop/CiampittiLab/Apsim_workshop/Markdown/simulation_testing/",
+      node =  "Manager",
+      manager.child = "SowingRule",
+      parm = "SowDate",
+      value = paste0(..2$SowDate),
+      overwrite = FALSE,
+      edit.tag = paste0("-", ..1)
+      verbose = TRUE),
+    .options = furrr_options(),
+    .env_globals = parent.frame(),
+    .progress = F)) %>%
+  # SowingRule - population
+  mutate(sim_pop = future_pmap(
+    .l = list(ID, data),
+    .f = ~apsimx::edit_apsimx(
+      file = paste0("Soybean-", ..2$site,"-", ..1, ".apsimx"),
+      src.dir = "C:/Users/Emmanuela/Desktop/CiampittiLab/Apsim_workshop/Markdown/simulation_testing/",
+      wrt.dir = "C:/Users/Emmanuela/Desktop/CiampittiLab/Apsim_workshop/Markdown/simulation_testing/",
+      node =  "Manager",
+      manager.child = "SowingRule",
+      parm = "Population",
+      value = ..2$population,
+      overwrite = TRUE,
+      verbose = TRUE),
+    .options = furrr_options(),
+    .env_globals = parent.frame(),
+    .progress = F)) %>%
+  #Cultivar
+  mutate(sim_cv = future_pmap(
+    .l = list(ID, data),
+    .f = ~apsimx::edit_apsimx(
+      file = paste0("Soybean-", ..2$site,"-", ..1, ".apsimx"),
+      src.dir = "C:/Users/Emmanuela/Desktop/CiampittiLab/Apsim_workshop/Markdown/simulation_testing/",
+      wrt.dir = "C:/Users/Emmanuela/Desktop/CiampittiLab/Apsim_workshop/Markdown/simulation_testing/",
+      node =  "Manager",
+      manager.child = "SowingRule",
+      parm = "CultivarName",
+      value = ..2$genotype,
+      overwrite = TRUE,
+      verbose = TRUE),
+    .options = furrr_options(),
+    .env_globals = parent.frame(),
+    .progress = F)) %>%
+  # Clock - start
+  mutate(sim_clock1 = future_pmap(
+    .l = list(ID, data),
+    .f = ~ apsimx::edit_apsimx(
+      file = paste0("Soybean-", ..2$site,"-", ..1, ".apsimx"),
+      src.dir = "C:/Users/Emmanuela/Desktop/CiampittiLab/Apsim_workshop/Markdown/simulation_testing/",
+      wrt.dir = "C:/Users/Emmanuela/Desktop/CiampittiLab/Apsim_workshop/Markdown/simulation_testing/",
+      node =  "Clock",
+      parm = "Start",
+      value = paste0("01/01/", ..2$year),
+      overwrite = TRUE,
+      verbose = TRUE),
+    .options = furrr_options(),
+    .env_globals = parent.frame(),
+    .progress = F)) %>%
+  #Clock - end
+  mutate(sim_clock2 = future_pmap(
+    .l = list(ID, data),
+    .f = ~ apsimx::edit_apsimx(
+      file = paste0("Soybean-", ..2$site,"-", ..1, ".apsimx"),
+      src.dir = "C:/Users/Emmanuela/Desktop/CiampittiLab/Apsim_workshop/Markdown/simulation_testing/",
+      wrt.dir = "C:/Users/Emmanuela/Desktop/CiampittiLab/Apsim_workshop/Markdown/simulation_testing/",
+      node =  "Clock",
+      parm = "End",
+      value = paste0("01/01/", ..2$year + 1),
+      overwrite = TRUE,
+      verbose = TRUE),
+    .options = furrr_options(),
+    .env_globals = parent.frame(),
+    .progress = F))
+list.files("C:/Users/Emmanuela/Desktop/CiampittiLab/Apsim_workshop/Markdown")
+inspect_apsimx( file = "SoybeanHutchinsonHut14_MG3_32_2-Jul.apsimx",
+              src.dir = "C:/Users/Emmanuela/Desktop/CiampittiLab/Apsim_workshop/Markdown",
+              node="Clock",
+              #display.available = TRUE
+              )
+```
+
+
+
+
+
+
+
+
+
+
+
+```
+

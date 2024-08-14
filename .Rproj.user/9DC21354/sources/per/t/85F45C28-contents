@@ -1,0 +1,718 @@
+---
+title: "Metrica"
+author: "Emmanuela van Versendaal"
+date: "2/22/2022"
+output: html_document
+---
+
+# Library 
+```{r setup, include=FALSE}
+library(metrica)
+library(dplyr)
+library(tidyverse)
+library(performance)
+library(ggstatsplot)
+library(readxl)
+library(parallel)
+
+
+library(wesanderson)
+names(wes_palettes)
+library(ggsci)
+
+
+```
+
+# LMR-Osler- extradata
+```{r}
+soy_obsim <- read.csv("../Data/excel/Soy_Obsim.csv") 
+
+soy_obsim_rev <- read.csv("../Data/excel/Soy_Obsim.csv") %>% 
+  filter(Delete != "yes")
+
+
+```
+
+##1. metrica
+
+###1.1. all dataset
+```{r}
+
+soy_obsim %>% 
+  group_by(genotype) %>% 
+  mutate(metrics = pmap(.l = list(site, yield, yield_sim),
+                        .f = ~ metrica::metrics.summary(obs = ..2, pred = ..3)))
+
+soy_obsim %>% 
+  metrica::metrics.summary(obs = soy_obsim$yield, pred = soy_obsim$yield_sim) %>% 
+  select(RMSE, PLP, PLA, KGE)%>%
+  tidyr::pivot_longer(tidyr::everything(),
+                      names_to = "Metric",
+                      values_to = "value") 
+
+soy_obsim %>% summarise(mean_yield = mean(yield))
+
+soy_obsim %>% metrica::scatter.plot(obs = soy_obsim$yield, pred = soy_obsim$yield_sim,
+             orientation = "OP")
+
+############################
+
+soy_obsim %>% 
+  mutate(Maturity2 = Maturity) %>% 
+  separate(Maturity2, into = c("MG", "MG2")) %>% 
+  mutate(MG2 = as.factor(MG2)) %>%
+  filter(MG2 != 4 &
+           MG2 != 5 &
+           MG2 != 6) %>% 
+  group_by(MG2) %>% 
+  summarise(no_rows = length(MG2))
+  
+  
+```
+
+###1.2. Filtered
+```{r}
+soy_obsim_rev %>% 
+  metrica::metrics.summary(obs = soy_obsim_rev$yield, pred = soy_obsim_rev$yield_sim) %>% 
+  select(RMSE, PLP, PLA, KGE) %>%
+  tidyr::pivot_longer(tidyr::everything(),
+                      names_to = "Metric",
+                      values_to = "value") 
+soy_obsim_rev %>% summarise(mean_yield = mean(yield))
+
+plot <- soy_obsim_rev %>% metrica::scatter.plot(obs = soy_obsim_rev$yield, pred = soy_obsim_rev$yield_sim,
+             orientation = "OP")
+
+### filtered by MG
+
+
+
+```
+
+
+##2. Plot
+```{r}
+obs_vs_sim <- soy_obsim %>% 
+  mutate(SY = paste0(substr(site, 1,3), substr(year, 3,4)) ) %>% 
+  separate(Sowdate, into = c("day", "month"), sep = "-") %>% 
+  mutate(month = as.factor(month),
+         month = fct_relevel(month, "mar", "apr", "may", "jun", "jul")) %>% 
+  ggplot(aes(yield, yield_sim))+
+  geom_point(aes(color = site, shape = site), alpha = 0.5, size = 2)+
+  geom_abline(slope=1,intercept=0,na.rm = FALSE,show.legend = NA, linetype="dashed")+
+  theme_bw(base_size = 12)+
+  scale_y_continuous(expand=c(0,0))  +
+  scale_x_continuous(expand=c(0,0)) +
+  coord_cartesian(ylim=c(0, 8000), xlim=c(0, 8000)) +
+  #theme(legend.position="none") +
+  #ggtitle("data")+theme(plot.margin=unit(c(0.5,1,0.5,0.5),"cm"))+
+  ylab("Simulated grain yield (kg/ha)" ) + xlab("Observed grain yield (kg/ha)")+
+  facet_grid(genotype  ~ month)
+
+ggsave("../Output/obs_vs_sim.tiff", height = 5, width = 6)
+
+
+soy_obsim_rev %>% 
+  mutate(SY = paste0(substr(site, 1,3), substr(year, 3,4)) ) %>% 
+  separate(Sowdate, into = c("day", "month"), sep = "-") %>% 
+  mutate(month = as.factor(month),
+         month = fct_relevel(month, "mar", "apr", "may", "jun", "jul")) %>% 
+  ggplot(aes(yield, yield_sim))+
+  geom_point(aes(color = site, shape = site), alpha = 0.5, size = 2)+
+  geom_abline(slope=1,intercept=0,na.rm = FALSE,show.legend = NA, linetype="dashed")+
+  theme_bw(base_size = 12)+
+  scale_y_continuous(expand=c(0,0))  +
+  scale_x_continuous(expand=c(0,0)) +
+  coord_cartesian(ylim=c(0, 8000), xlim=c(0, 8000)) +
+  #theme(legend.position="none") +
+  #ggtitle("data")+theme(plot.margin=unit(c(0.5,1,0.5,0.5),"cm"))+
+  ylab("Simulated grain yield (kg/ha)" ) + xlab("Observed grain yield (kg/ha)")+
+  facet_grid(genotype  ~ month)
+
+detectcore
+
+```
+
+```{r}
+soy_obsim %>% 
+  group_by(site, year, genotype, population, Sowdate) %>% 
+  mutate(ID = paste0(substr(site, 1,3), substr(year, 3,4))) %>% 
+  ggplot(aes(genotype, yield))+
+  geom_boxplot(aes(color = Sowdate), 
+               alpha= 0.5, 
+               show.legend = FALSE,
+               
+               #Notch
+               notch = "grey70",
+               notchwidth = 0.5,
+               
+               # custom outiliers
+               outlier.colour = "red",
+               outlier.fill = "red",
+               outlier.size = 1.5)+
+  ylab("yield (kg/ha)" ) + 
+  xlab("Generic genotype")+
+  facet_wrap(~ID, scales = "free")+
+  theme_bw(base_size = 10)
+
+##################################################################
+
+boxplot(soy_obsim$yield)$out
+
+soy_obsim %>% 
+  group_by(site, year, genotype, population, Sowdate) %>% 
+  ggstatsplot::b
+
+################################################################
+soy_obsim %>% 
+  group_by(site, year, genotype, population, Sowdate) %>% 
+  check_outliers(yield,
+                 method = c("mahalanobis", "zscore", "bci", "ics", "lof", "optics"))
+
+```
+
+```{r}
+prueba <- soy_obsim %>% 
+  group_by(site, year, population, Maturity, Sowdate) %>% 
+  summarise(mean_yield = mean(yield))
+
+soy_obsim %>% 
+  left_join(prueba) %>% 
+  mutate(variation = round(sqrt(((yield - mean_yield)^2))/mean_yield*100)) %>% 
+  ggplot(aes(x = Maturity, y = mean_yield))+
+  geom_point(aes(color = Sowdate), show.legend = F)+
+  geom_errorbar()
+  facet_grid(site ~ year, scales = "free")+
+  theme_bw(base_size = 8)
+
+unique(soy_obsim)
+
+
+
+soy_obsim %>% 
+  mutate(SY = paste0(substr(site, 1,3), substr(year, 3,4)) ) %>% 
+  separate(Sowdate, into = c("day", "month"), sep = "-") %>% 
+  mutate(month = as.factor(month),
+         month = fct_relevel(month, "mar", "apr", "may", "jun", "jul")) %>% 
+  left_join(prueba) %>%
+  group_by(site, year, Maturity, Sowdate, population) %>% 
+  ggplot(aes(mean_yield, yield_sim))+
+  geom_point(aes(color = site, shape = site), alpha = 0.5, size = 2)+
+  geom_abline(slope=1,intercept=0,na.rm = FALSE,show.legend = NA, linetype="dashed")+
+  theme_bw(base_size = 12)+
+  scale_y_continuous(expand=c(0,0))  +
+  scale_x_continuous(expand=c(0,0)) +
+  coord_cartesian(ylim=c(0, 8000), xlim=c(0, 8000)) +
+  #theme(legend.position="none") +
+  #ggtitle("data")+theme(plot.margin=unit(c(0.5,1,0.5,0.5),"cm"))+
+  ylab("Simulated grain yield (kg/ha)" ) + xlab("Observed grain yield (kg/ha)")+
+  facet_grid(genotype  ~ month)
+
+```
+
+
+
+
+
+
+# KSU performance
+```{r}
+test_ObSim <-  read.csv("../Data/excel/KSU_performance_test/test_ObSim.csv")
+```
+
+## 1. Metrica
+```{r}
+test_ObSim %>% 
+  filter(year != 2000 &
+           year != 2001 &
+           year != 2002 &
+           year != 2003) %>% 
+  group_by(site) %>% 
+  nest() %>%
+  mutate(metrica = data %>% map(~ metrica::metrics.summary(obs = .$yield, pred = .$yield_sim) %>% 
+                                  select(RMSE, RRMSE, PLP, PLA, KGE))) %>% 
+  unnest(metrica) 
+
+
+
+#################################
+test_ObSim %>% 
+  filter(year != 2000 &
+           year != 2001 &
+           year != 2002 &
+           year != 2003) %>% 
+  filter(site != "Waterville") %>% 
+  group_by(site, year, genotype, population, SowDate) %>% 
+  summarise(yield_mean = mean(yield),
+            yield_sim_mean = mean(yield_sim),
+            sd_yield = sd(yield),
+            sd_yield_sim = sd(yield_sim)) %>% 
+  ungroup(site, year, genotype, population, SowDate) %>% 
+  nest() %>% 
+  mutate(metrica = data %>% map(~ metrica::metrics.summary(obs = .$yield, pred = .$yield_sim) %>% 
+                                  select(RMSE, RRMSE, PLP, PLA, KGE))) %>% 
+  unnest(metrica) 
+
+ ##############################
+  metrica::scatter.plot(obs = test_ObSim$yield, pred = test_ObSim$yield_sim,
+             orientation = "OP")
+
+  metrica::bland.altman.plot(test_ObSim$yield, test_ObSim$yield_sim)
+
+  
+```
+
+## 2. Plot
+```{r}
+
+pal <- wes_palette("FantasticFox1", 21, type = "continuous")
+pal2 <- wes_palette("FantasticFox1", 4, type = "discrete")
+
+### genotype ###
+test_ObSim %>% 
+  filter(year != 2000 &
+           year != 2001 &
+           year != 2002 &
+           year != 2003) %>% 
+  
+  
+  ggplot(aes(yield_sim, yield))+
+  geom_smooth(method=lm , color="black", fill="#C1BBB7", se=TRUE) +
+  geom_point(aes(fill = site), shape = 21, alpha = 0.7, size = 2.5)+
+  geom_abline(slope=1,intercept=0,na.rm = FALSE,show.legend = NA, linetype="dashed")+
+
+  scale_color_manual(values = pal , aesthetics = c("colour", "fill"))+
+  
+  
+  facet_wrap( ~ genotype)+
+  
+  scale_y_continuous(expand=c(0,0))  +
+  scale_x_continuous(expand=c(0,0)) +
+  coord_cartesian(ylim=c(0, 8000), xlim=c(0, 8000)) +
+  #ggtitle("data")+theme(plot.margin=unit(c(0.5,1,0.5,0.5),"cm"))+
+  xlab(expression(`Simulated grain yield`~(kg~ha ^-1)) ) + ylab(`Observed grain yield`~(kg~ha^-1) )+
+  
+  
+
+  theme_bw() +
+  theme(panel.grid = element_blank(),
+        strip.background = element_rect(fill = "#f5f5f5"), 
+        strip.text = element_text(face = "italic", size = 11, hjust = 0.1),
+        text = element_text(size = 11),
+        legend.title = element_text(), #legend.position = "bottom",
+        axis.ticks.length=unit(-0.10, "cm"), legend.background = element_blank(),
+        axis.text.x = element_text(margin=unit(c(0.5,0.5,0.5,0.5), "cm"), size = 11),
+        axis.text.y = element_text(margin=unit(c(0.5,0.5,0.5,0.5), "cm"), size = 11))
+
+
+
+
+###genotype + site ###
+test_ObSim %>% 
+  filter(year != 2000 &
+           year != 2001 &
+           year != 2002 &
+           year != 2003) %>% 
+  mutate(YG = paste0(substr(year, 3,4), genotype)) %>% 
+
+  ggplot(aes(x = yield_sim, y = yield))+
+  geom_smooth(method=lm , color="black", fill="#C1BBB7", se=TRUE)+
+  geom_abline(slope=1,intercept=0,na.rm = FALSE,show.legend = NA, linetype="dashed") +
+  geom_point(aes(fill = site), shape = 21,  alpha = 0.7, size = 2) +
+  
+  scale_color_manual(values = pal , aesthetics = c("colour", "fill"))+
+
+  scale_y_continuous(expand=c(0,0))  +
+  scale_x_continuous(expand=c(0,0)) +
+  coord_cartesian(ylim=c(0, 8000), xlim=c(0, 8000)) +
+  #ggtitle("data")+theme(plot.margin=unit(c(0.5,1,0.5,0.5),"cm"))+
+  xlab(expression(`Simulated grain yield`~(kg~ha ^-1)) ) + ylab(`Observed grain yield`~(kg~ha^-1) )+
+
+  
+  facet_wrap( ~ YG)+
+  
+  theme_bw() +
+  theme(panel.grid = element_blank(),
+        strip.background = element_rect(fill = "#f5f5f5"), strip.text = element_text(face = "italic", size = 11, hjust = 0.1),
+        text = element_text(size = 12),
+        legend.title = element_text(), legend.position = "bottom",
+        axis.ticks.length=unit(-0.10, "cm"), legend.background = element_blank(),
+        axis.text.x = element_text(margin=unit(c(0.5,0.5,0.5,0.5), "cm"), size = 10),
+        axis.text.y = element_text(margin=unit(c(0.5,0.5,0.5,0.5), "cm"), size = 10))
+
+###site + year ###
+
+test_ObSim %>% 
+  filter(year != 2000 &
+          year != 2001 &
+          year != 2002 &
+          year != 2003) %>% 
+  mutate(SY = paste0(substr(site, 1,3) ,substr(year, 3,4))) %>% 
+
+  ggplot(aes(x = yield_sim, y = yield))+
+  geom_smooth(method=lm , color="black", fill="#C1BBB7", se=TRUE)+
+  geom_abline(slope=1,intercept=0,na.rm = FALSE,show.legend = NA, linetype="dashed") +
+  geom_point(aes(fill = site), shape = 21,  alpha = 0.7, size = 2) +
+  
+  #scale_color_manual(values = pal2 , aesthetics = c("colour", "fill"))+
+
+  scale_y_continuous(expand=c(0,0))  +
+  scale_x_continuous(expand=c(0,0)) +
+  coord_cartesian(ylim=c(0, 8000), xlim=c(0, 8000)) +
+  #ggtitle("data")+theme(plot.margin=unit(c(0.5,1,0.5,0.5),"cm"))+
+  xlab(expression(`Simulated grain yield`~(kg~ha ^-1)) ) + ylab(`Observed grain yield`~(kg~ha^-1) )+
+  
+  facet_wrap( ~ year)+
+  
+  theme_bw() +
+  theme(panel.grid = element_blank(),
+        strip.background = element_rect(fill = "#f5f5f5"), strip.text = element_text(face = "italic", size = 11, hjust = 0.1),
+        text = element_text(size = 12),
+        legend.title = element_text(), #legend.position = "bottom",
+        axis.ticks.length=unit(-0.10, "cm"), legend.background = element_blank(),
+        axis.text.x = element_text(margin=unit(c(0.5,0.5,0.5,0.5), "cm"), size = 10),
+        axis.text.y = element_text(margin=unit(c(0.5,0.5,0.5,0.5), "cm"), size = 10))
+```
+
+#KSU perf. Harvest
+```{r}
+test_ObSim_harv <- read.csv("../Data/excel/test_ObSim_harvest.csv")
+
+```
+
+## 1. Metrica
+```{r}
+test_ObSim_harv %>% 
+  group_by(site) %>% 
+  nest() %>%
+  mutate(metrica = data %>% map(~ metrica::metrics.summary(obs = .$yield, pred = .$yield_sim) %>% 
+                                  select(RMSE, RRMSE, PLP, PLA, KGE))) %>% 
+  unnest(metrica) 
+
+
+  metrica::scatter.plot(obs = test_ObSim_harv$yield, pred = test_ObSim_harv$yield_sim,
+             orientation = "OP")
+```
+## 2. Plot
+```{r}
+
+pal <- wes_palette("FantasticFox1", 21, type = "continuous")
+pal2 <- wes_palette("FantasticFox1", 4, type = "discrete")
+
+### genotype ###
+test_ObSim_harv %>% 
+  filter(year != 2000 &
+           year != 2001 &
+           year != 2002 &
+           year != 2003) %>% 
+  
+  
+  ggplot(aes(yield_sim, yield))+
+  geom_smooth(method=lm , color="black", fill="#C1BBB7", se=TRUE) +
+  geom_point(aes(fill = site), shape = 21, alpha = 0.7, size = 2.5)+
+  geom_abline(slope=1,intercept=0,na.rm = FALSE,show.legend = NA, linetype="dashed")+
+
+  scale_color_manual(values = pal , aesthetics = c("colour", "fill"))+
+  
+  
+  facet_wrap( ~ genotype)+
+  
+  scale_y_continuous(expand=c(0,0))  +
+  scale_x_continuous(expand=c(0,0)) +
+  coord_cartesian(ylim=c(0, 8000), xlim=c(0, 8000)) +
+  #ggtitle("data")+theme(plot.margin=unit(c(0.5,1,0.5,0.5),"cm"))+
+  xlab(expression(`Simulated grain yield`~(kg~ha ^-1)) ) + ylab(`Observed grain yield`~(kg~ha^-1) )+
+  
+  
+
+  theme_bw() +
+  theme(panel.grid = element_blank(),
+        strip.background = element_rect(fill = "#f5f5f5"), 
+        strip.text = element_text(face = "italic", size = 11, hjust = 0.1),
+        text = element_text(size = 11),
+        legend.title = element_text(), #legend.position = "bottom",
+        axis.ticks.length=unit(-0.10, "cm"), legend.background = element_blank(),
+        axis.text.x = element_text(margin=unit(c(0.5,0.5,0.5,0.5), "cm"), size = 11),
+        axis.text.y = element_text(margin=unit(c(0.5,0.5,0.5,0.5), "cm"), size = 11))
+
+
+
+
+###genotype + site ###
+test_ObSim_harv %>% 
+  filter(year != 2000 &
+           year != 2001 &
+           year != 2002 &
+           year != 2003) %>% 
+  mutate(YG = paste0(substr(year, 3,4), genotype)) %>% 
+
+  ggplot(aes(x = yield_sim, y = yield))+
+  geom_smooth(method=lm , color="black", fill="#C1BBB7", se=TRUE)+
+  geom_abline(slope=1,intercept=0,na.rm = FALSE,show.legend = NA, linetype="dashed") +
+  geom_point(aes(fill = site), shape = 21,  alpha = 0.7, size = 2) +
+  
+  scale_color_manual(values = pal , aesthetics = c("colour", "fill"))+
+
+  scale_y_continuous(expand=c(0,0))  +
+  scale_x_continuous(expand=c(0,0)) +
+  coord_cartesian(ylim=c(0, 8000), xlim=c(0, 8000)) +
+  #ggtitle("data")+theme(plot.margin=unit(c(0.5,1,0.5,0.5),"cm"))+
+  xlab(expression(`Simulated grain yield`~(kg~ha ^-1)) ) + ylab(`Observed grain yield`~(kg~ha^-1) )+
+
+  
+  facet_wrap( ~ YG)+
+  
+  theme_bw() +
+  theme(panel.grid = element_blank(),
+        strip.background = element_rect(fill = "#f5f5f5"), strip.text = element_text(face = "italic", size = 11, hjust = 0.1),
+        text = element_text(size = 12),
+        legend.title = element_text(), legend.position = "bottom",
+        axis.ticks.length=unit(-0.10, "cm"), legend.background = element_blank(),
+        axis.text.x = element_text(margin=unit(c(0.5,0.5,0.5,0.5), "cm"), size = 10),
+        axis.text.y = element_text(margin=unit(c(0.5,0.5,0.5,0.5), "cm"), size = 10))
+
+###site + year ###
+
+test_ObSim_harv %>% 
+  filter(year != 2000 &
+          year != 2001 &
+          year != 2002 &
+          year != 2003) %>% 
+  mutate(SY = paste0(substr(site, 1,3) ,substr(year, 3,4))) %>% 
+
+  ggplot(aes(x = yield_sim, y = yield))+
+  geom_smooth(method=lm , color="black", fill="#C1BBB7", se=TRUE)+
+  geom_abline(slope=1,intercept=0,na.rm = FALSE,show.legend = NA, linetype="dashed") +
+  geom_point(aes(fill = site), shape = 21,  alpha = 0.7, size = 2) +
+  
+  #scale_color_manual(values = pal2 , aesthetics = c("colour", "fill"))+
+
+  scale_y_continuous(expand=c(0,0))  +
+  scale_x_continuous(expand=c(0,0)) +
+  coord_cartesian(ylim=c(0, 8000), xlim=c(0, 8000)) +
+  #ggtitle("data")+theme(plot.margin=unit(c(0.5,1,0.5,0.5),"cm"))+
+  xlab(expression(`Simulated grain yield`~(kg~ha ^-1)) ) + ylab(`Observed grain yield`~(kg~ha^-1) )+
+  
+  facet_wrap( ~ SY)+
+  
+  theme_bw() +
+  theme(panel.grid = element_blank(),
+        strip.background = element_rect(fill = "#f5f5f5"), strip.text = element_text(face = "italic", size = 11, hjust = 0.1),
+        text = element_text(size = 12),
+        legend.title = element_text(), #legend.position = "bottom",
+        axis.ticks.length=unit(-0.10, "cm"), legend.background = element_blank(),
+        axis.text.x = element_text(margin=unit(c(0.5,0.5,0.5,0.5), "cm"), size = 10),
+        axis.text.y = element_text(margin=unit(c(0.5,0.5,0.5,0.5), "cm"), size = 10))
+```
+
+# KSU perff. Hav - 15-21
+## 1. Metrica
+```{r}
+test_ObSim_harv2 <- test_ObSim_harv %>% 
+  filter(year == 2015 |
+           year == 2016 |
+           year == 2017 |
+           year == 2018 |
+           year == 2019 |
+           year == 2020 |
+           year == 2021 |
+           year == 2014) 
+
+test_ObSim_harv2 %>% 
+  group_by(site) %>% 
+  nest() %>%
+  mutate(metrica = data %>% map(~ metrica::metrics.summary(obs = .$yield, pred = .$yield_sim) %>% 
+                                  select(RMSE, RRMSE, PLP, PLA, KGE))) %>% 
+  unnest(metrica) 
+
+
+  metrica::scatter.plot(obs = test_ObSim_harv2$yield, pred = test_ObSim_harv2$yield_sim,
+             orientation = "OP")
+  test_ObSim_harv %>% 
+  filter(year == 2015 |
+           year == 2016 |
+           year == 2017 |
+           year == 2018 |
+           year == 2019 |
+           year == 2020 |
+           year == 2021 |
+           year == 2014) 
+
+test_ObSim_harv2 %>% 
+  group_by(site) %>% 
+  nest() %>%
+  mutate(metrica = data %>% map(~ metrica::metrics.summary(obs = .$yield, pred = .$yield_sim) %>% 
+                                  filter(Metric %in% c("RMSE", "RRMSE", "PLP", "PLA", "KGE"))
+                                )) %>% 
+  unnest(metrica) 
+```
+
+
+
+## 2. Plot
+```{r}
+
+pal <- wes_palette("FantasticFox1", 21, type = "continuous")
+pal2 <- wes_palette("FantasticFox1", 4, type = "discrete")
+
+### genotype ###
+test_ObSim_harv2 %>% 
+  filter(year != 2000 &
+           year != 2001 &
+           year != 2002 &
+           year != 2003) %>% 
+  
+  
+  ggplot(aes(yield_sim, yield))+
+  geom_smooth(method=lm , color="black", fill="#C1BBB7", se=TRUE) +
+  geom_point(aes(fill = site), shape = 21, alpha = 0.7, size = 2.5)+
+  geom_abline(slope=1,intercept=0,na.rm = FALSE,show.legend = NA, linetype="dashed")+
+
+  scale_color_manual(values = pal , aesthetics = c("colour", "fill"))+
+  
+  
+  facet_wrap( ~ genotype)+
+  
+  scale_y_continuous(expand=c(0,0))  +
+  scale_x_continuous(expand=c(0,0)) +
+  coord_cartesian(ylim=c(0, 8000), xlim=c(0, 8000)) +
+  #ggtitle("data")+theme(plot.margin=unit(c(0.5,1,0.5,0.5),"cm"))+
+  xlab(expression(`Simulated grain yield`~(kg~ha ^-1)) ) + ylab(`Observed grain yield`~(kg~ha^-1) )+
+  
+  
+
+  theme_bw() +
+  theme(panel.grid = element_blank(),
+        strip.background = element_rect(fill = "#f5f5f5"), 
+        strip.text = element_text(face = "italic", size = 11, hjust = 0.1),
+        text = element_text(size = 11),
+        legend.title = element_text(), #legend.position = "bottom",
+        axis.ticks.length=unit(-0.10, "cm"), legend.background = element_blank(),
+        axis.text.x = element_text(margin=unit(c(0.5,0.5,0.5,0.5), "cm"), size = 11),
+        axis.text.y = element_text(margin=unit(c(0.5,0.5,0.5,0.5), "cm"), size = 11))
+
+
+
+
+###genotype + site ###
+test_ObSim_harv2 %>% 
+  filter(year != 2000 &
+           year != 2001 &
+           year != 2002 &
+           year != 2003) %>% 
+  mutate(YG = paste0(substr(year, 3,4), genotype)) %>% 
+
+  ggplot(aes(x = yield_sim, y = yield))+
+  geom_smooth(method=lm , color="black", fill="#C1BBB7", se=TRUE)+
+  geom_abline(slope=1,intercept=0,na.rm = FALSE,show.legend = NA, linetype="dashed") +
+  geom_point(aes(fill = site), shape = 21,  alpha = 0.7, size = 2) +
+  
+  scale_color_manual(values = pal , aesthetics = c("colour", "fill"))+
+
+  scale_y_continuous(expand=c(0,0))  +
+  scale_x_continuous(expand=c(0,0)) +
+  coord_cartesian(ylim=c(0, 8000), xlim=c(0, 8000)) +
+  #ggtitle("data")+theme(plot.margin=unit(c(0.5,1,0.5,0.5),"cm"))+
+  xlab(expression(`Simulated grain yield`~(kg~ha ^-1)) ) + ylab(`Observed grain yield`~(kg~ha^-1) )+
+
+  
+  facet_wrap( ~ YG)+
+  
+  theme_bw() +
+  theme(panel.grid = element_blank(),
+        strip.background = element_rect(fill = "#f5f5f5"), strip.text = element_text(face = "italic", size = 11, hjust = 0.1),
+        text = element_text(size = 12),
+        legend.title = element_text(), legend.position = "bottom",
+        axis.ticks.length=unit(-0.10, "cm"), legend.background = element_blank(),
+        axis.text.x = element_text(margin=unit(c(0.5,0.5,0.5,0.5), "cm"), size = 10),
+        axis.text.y = element_text(margin=unit(c(0.5,0.5,0.5,0.5), "cm"), size = 10))
+
+###site + year ###
+
+test_ObSim_harv2 %>% 
+  filter(year != 2000 &
+          year != 2001 &
+          year != 2002 &
+          year != 2003) %>% 
+  mutate(SY = paste0(substr(site, 1,3) ,substr(year, 3,4))) %>% 
+
+  ggplot(aes(x = yield_sim, y = yield))+
+  geom_smooth(method=lm , color="black", fill="#C1BBB7", se=TRUE)+
+  geom_abline(slope=1,intercept=0,na.rm = FALSE,show.legend = NA, linetype="dashed") +
+  geom_point(aes(fill = site), shape = 21,  alpha = 0.7, size = 2) +
+  
+  #scale_color_manual(values = pal2 , aesthetics = c("colour", "fill"))+
+
+  scale_y_continuous(expand=c(0,0))  +
+  scale_x_continuous(expand=c(0,0)) +
+  coord_cartesian(ylim=c(0, 8000), xlim=c(0, 8000)) +
+  #ggtitle("data")+theme(plot.margin=unit(c(0.5,1,0.5,0.5),"cm"))+
+  xlab(expression(`Simulated grain yield`~(kg~ha ^-1)) ) + ylab(`Observed grain yield`~(kg~ha^-1) )+
+  
+  facet_wrap( ~ year)+
+  
+  theme_bw() +
+  theme(panel.grid = element_blank(),
+        strip.background = element_rect(fill = "#f5f5f5"), strip.text = element_text(face = "italic", size = 11, hjust = 0.1),
+        text = element_text(size = 12),
+        legend.title = element_text(), #legend.position = "bottom",
+        axis.ticks.length=unit(-0.10, "cm"), legend.background = element_blank(),
+        axis.text.x = element_text(margin=unit(c(0.5,0.5,0.5,0.5), "cm"), size = 10),
+        axis.text.y = element_text(margin=unit(c(0.5,0.5,0.5,0.5), "cm"), size = 10))
+```
+
+
+
+# KSU perf - LMR_O
+```{r}
+soy_obsim_rev %>% 
+  filter(site != "Manhattan" &
+           site != "Hutchinson") %>% 
+  mutate(MG = Maturity) %>% 
+  separate(MG, into = c("MG", "MG2")) %>% 
+  filter(MG2 != 4 &
+           MG2 != 5 &
+           MG2 != 6) %>% 
+  mutate(MG2 = ifelse(is.na(MG2), 0, MG2),
+         genotype = case_when(MG == 2 & MG2 <= 3 ~ "Generic_MG2",
+                               MG == 2 & MG2 > 3 ~ "Generic_MG3",
+                               MG == 3 & MG2 <= 3 ~ "Generic_MG3",
+                               MG == 3 & MG2 > 3 ~ "Generic_MG4",
+                               MG == 4 & MG2 <= 3 ~ "Generic_MG4",
+                               MG == 4 & MG2 > 3 ~ "Generic_MG5",
+                               MG == 5 & MG2 <= 3 ~ "Generic_MG5",
+                               MG == 5 & MG2 > 3~ "Generic_MG6",
+                               TRUE ~ "NA")) %>% 
+  bind_rows(test_ObSim_harv2) %>% 
+  nest() %>%
+  mutate(metrica = data %>% map(~ metrica::metrics.summary(obs = .$yield, pred = .$yield_sim) %>% 
+                                  select(RMSE, RRMSE, PLP, PLA, KGE))) %>% 
+  unnest(metrica) 
+  
+```
+
+#LMR_Osler with harvest
+```{r}
+soyh_Obsim <- read.csv("../Data/excel/soyh_ObSim.csv") %>% 
+  rename("SowDate" = Sowdate)
+```
+
+```{r}
+
+soybean_complete# <- 
+test_ObSim_harv2 %>% 
+  mutate(year = as.numeric(year)) %>% 
+  bind_rows(soyh_Obsim) %>% 
+  dplyr::select(-c(Maturity, DOY))
+
+ soybean_complete %>% 
+   group_by(site) %>% 
+  nest() %>%
+  mutate(metrica = data %>% map(~ metrica::metrics.summary(obs = .$yield, pred = .$yield_sim) %>% 
+                                  dplyr::select(RMSE, RRMSE, PLP, PLA, KGE))) %>% 
+  unnest(metrica) 
+  
+ 
+
+```
+

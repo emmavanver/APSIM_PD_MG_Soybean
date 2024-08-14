@@ -1,0 +1,3107 @@
+---
+title: "sim_clim_models"
+author: "Emmanuela van Versendaal"
+date: "4/4/2022"
+output: html_document
+---
+# LIBRARY
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(lme4)
+library(emmeans)
+library(multcomp)
+library(TDPanalysis)
+library(ggridges)
+library(lubridate)
+library(viridis)
+library(ggbump)
+library(cowplot)
+library(devtools)
+devtools::install_github("BlakeRMills/MetBrewer")
+library(MetBrewer)
+
+```
+#------------------------
+# 1. CURRENT
+## Dataset
+```{r}
+current_clim <- current_clim %>% 
+  mutate(date = paste0(SowingDate, "-", substr(year, 3,4)),
+         #date = str_replace_all(date, "-", "/"),
+         date1 = format(strptime(date, format = "%d-%b-%y")),
+         DOY = yday(date1)) %>% 
+
+  mutate(PDxMG = paste0(SowingDate, "_", substr(Genotype, 9, 11 )))
+
+```
+
+##1.1. Lmer
+```{r}
+current_clim
+
+### Cluster 1 ###
+cl1_m <- lmer(yield_sim ~ SowingDate*Genotype + (1|site), 
+              data = current_clim %>%
+                filter(cluster == "North-central")  )
+
+car::Anova(cl1_m, type = 3)
+options('contrasts')
+options(contrasts = c("contr.sum", "contr.poly")) # set the contrasts
+options('contrasts')
+
+m1_means <- emmeans::emmeans(cl1_m, specs = pairwise~ SowingDate:Genotype) 
+
+m1_means_cld <- cld(m1_means,
+    adjust = "tukey",
+    Letters = letters,
+    reversed = TRUE,
+    comparisons = TRUE)
+
+m1_means_cld.df <- m1_means_cld %>% as.data.frame() %>% 
+  mutate(PDxMG = paste0(SowingDate, "_", substr(Genotype, 9, 11 )),
+         cluster = "North-central")
+
+### Cluster 3 ###
+cl3_m <- lmer(yield_sim ~ SowingDate*Genotype + (1|site), 
+              data = current_clim %>% 
+                filter(cluster == "South-east")  )
+
+car::Anova(cl3_m, type = 3)
+
+options('contrasts')
+options(contrasts = c("contr.sum", "contr.poly")) # set the contrasts
+options('contrasts')
+
+m3_means <- emmeans::emmeans(cl3_m, specs = pairwise~ SowingDate:Genotype) 
+
+m3_means_cld <- cld(m3_means,
+    adjust = "none",
+    Letters = letters,
+    reversed = TRUE,
+    comparisons = TRUE)
+
+m3_means_cld.df <- m3_means_cld %>% as.data.frame() %>% 
+  mutate(PDxMG = paste0(SowingDate, "_", substr(Genotype, 9, 11 )),
+         cluster = "South-east")
+
+### Cluster 2 ###
+cl2_m <- lmer(yield_sim ~ SowingDate*Genotype + (1|site), 
+              data = current_clim %>% 
+                filter(cluster == "North-east")  )
+
+car::Anova(cl2_m, type = 3)
+
+options('contrasts')
+options(contrasts = c("contr.sum", "contr.poly")) # set the contrasts
+options('contrasts')
+
+m2_means <- emmeans::emmeans(cl2_m, specs = pairwise~ SowingDate:Genotype) 
+
+m2_means_cld <- cld(m2_means,
+    adjust = "tukey",
+    Letters = letters,
+    reversed = TRUE,
+    comparisons = TRUE)
+
+m2_means_cld.df <- m2_means_cld %>% as.data.frame() %>% 
+  mutate(PDxMG = paste0(SowingDate, "_", substr(Genotype, 9, 11 )),
+         cluster = "North-east")
+
+means_cld.df <- m1_means_cld.df %>% 
+  bind_rows(m2_means_cld.df) %>% 
+  bind_rows(m3_means_cld.df) %>% 
+  mutate(SowingDate = as.factor(SowingDate),
+         SowingDate = fct_relevel(SowingDate, 
+                                  "15-apr",  "01-may", 
+                                  "15-may", "01-jun", 
+                                  "15-jun", "01-jul", "15-jul"))
+write.csv(prueba, "../Data/excel/prueba.csv", row.names = F)
+```
+
+
+```{r}
+
+write.csv(current_clim, "../Data/excel/current_clim.csv", row.names = F)
+
+means_cld.df %>% 
+  ggplot(aes(SowingDate, emmean, color = Genotype, group = Genotype, label = `.group`))+
+  geom_point()+
+  geom_line()+
+  geom_text(hjust= 0, vjust= -0.3)+
+  facet_grid(~cluster, scales = "free")+
+  theme_bw() +
+  theme(panel.grid = element_blank(),
+        strip.background = element_rect(fill = "#f5f5f5"), strip.text = element_text(face = "italic", size = 11, hjust = 0.1),
+        text = element_text(size = 11),
+        legend.title = element_text(), legend.position = "bottom",
+        axis.ticks.length=unit(-0.10, "cm"), legend.background = element_blank(),
+        axis.text.x = element_text(margin=unit(c(0.5,0.5,0.5,0.5), "cm"), size = 9),
+        axis.text.y = element_text(margin=unit(c(0.5,0.5,0.5,0.5), "cm"), size = 10))
+```
+```{r}
+current_clim %>% 
+  group_by(cluster, SowingDate, Genotype) %>% 
+  summarise(yield_sim = mean(yield_sim)) %>% 
+  mutate(SowingDate = as.factor(SowingDate),
+         SowingDate = fct_relevel(SowingDate, 
+                                  "15-apr",  "01-may", 
+                                  "15-may", "01-jun", 
+                                  "15-jun")) %>% 
+  ggplot(aes(SowingDate, yield_sim, color = Genotype, group = Genotype))+
+  geom_point()+
+  geom_line()+
+  facet_grid(~cluster, scales = "free")+
+  theme_bw() +
+  theme(panel.grid = element_blank(),
+        strip.background = element_rect(fill = "#f5f5f5"), strip.text = element_text(face = "italic", size = 11, hjust = 0.1),
+        text = element_text(size = 11),
+        legend.title = element_text(), legend.position = "bottom",
+        axis.ticks.length=unit(-0.10, "cm"), legend.background = element_blank(),
+        axis.text.x = element_text(margin=unit(c(0.5,0.5,0.5,0.5), "cm"), size = 9),
+        axis.text.y = element_text(margin=unit(c(0.5,0.5,0.5,0.5), "cm"), size = 10))
+
+
+
+
+
+```
+
+
+
+## 1.2. boxplot
+```{r}
+current_clim %>% 
+  mutate(SowingDate = as.factor(SowingDate),
+         SowingDate = fct_relevel(SowingDate, 
+                                  "15-apr",  "01-may", 
+                                  "15-may", "01-jun", 
+                                  "15-jun", "01-jul", "15-jul")) %>% 
+  ggplot(aes(yield_sim, SowingDate, color = Genotype))+
+  geom_boxplot()+
+  facet_wrap(~cluster, scales = "free") +
+  
+  theme_bw() +
+  theme(panel.grid = element_blank(),
+        strip.background = element_rect(fill = "#f5f5f5"), strip.text = element_text(face = "italic", size = 11, hjust = 0.1),
+        text = element_text(size = 11),
+        legend.title = element_text(), legend.position = "bottom",
+        axis.ticks.length=unit(-0.10, "cm"), legend.background = element_blank(),
+        axis.text.x = element_text(margin=unit(c(0.5,0.5,0.5,0.5), "cm"), size = 10),
+        axis.text.y = element_text(margin=unit(c(0.5,0.5,0.5,0.5), "cm"), size = 10))
+
+
+m1_means_cld.df1 <- m1_means_cld.df %>% 
+  mutate(PDxMG = as.factor(paste0(SowingDate, "_", substr(Genotype, 9, 11 )))  %>% 
+  factor(levels = c( "15-apr_MG3",  "15-apr_MG4", "15-apr_MG5", "15-apr_MG6", 
+                     "01-may_MG3", "01-may_MG4", "01-may_MG5", "01-may_MG6",
+                     "15-may_MG3", "15-may_MG4", "15-may_MG5", "15-may_MG6",
+                     "01-jun_MG3", "01-jun_MG4", "01-jun_MG5", "01-jun_MG6",  
+                     "15-jun_MG3", "15-jun_MG4", "15-jun_MG5", "15-jun_MG6")))
+                     
+                                
+  
+######## otra opcion #######
+means_cld.df %>%
+  mutate(SowingDate = as.factor(SowingDate),
+         PDxMG = fct_relevel(PDxMG, 
+                             "15-apr_MG3",  "15-apr_MG4", "15-apr_MG5", "15-apr_MG6", 
+                             "01-may_MG3", "01-may_MG4", "01-may_MG5", "01-may_MG6",
+                             "15-may_MG3", "15-may_MG4", "15-may_MG5", "15-may_MG6",
+                             "01-jun_MG3", "01-jun_MG4", "01-jun_MG5", "01-jun_MG6",  
+                             "15-jun_MG3", "15-jun_MG4", "15-jun_MG5", "15-jun_MG6")) %>% 
+  ##ggplot##
+  ggplot(aes(emmean, PDxMG))+
+  
+  geom_errorbarh(aes(color = Genotype,xmin = emmean - SE, xmax = emmean +SE), 
+                 width=.5, size=0.5,
+                 show.legend = F)+
+  
+  geom_point(aes(fill = Genotype),
+             shape = 21, size = 3) +
+  
+  scale_fill_manual(values = c("#4A586E", "#C1BBB7", "#D8664D", "#748700"), 
+                    aesthetics = c("fill", "color"))+
+  
+  geom_text(aes(label = .group,  vjust = -0.5))+
+  
+  facet_wrap(~cluster, scales = "free") + 
+  theme_bw() +
+  theme(panel.grid = element_blank(),
+        strip.background = element_rect(fill = "#f5f5f5"), strip.text = element_text(face = "italic", size = 11, hjust = 0.5),
+        text = element_text(size = 11),
+        legend.title = element_text(), legend.position = "bottom",
+        axis.ticks.length=unit(-0.10, "cm"), legend.background = element_blank(),
+        axis.text.x = element_text(margin=unit(c(0.1,0.1,0.1,0.1), "cm"), size = 10),
+        axis.text.y = element_text(margin=unit(c(0.1,0.1,0.1,0.1), "cm"), size = 10))
+
+
+
+means_cld.df %>%
+  mutate(SowingDate = as.factor(SowingDate),
+         PDxMG = fct_relevel(PDxMG, 
+                             "15-apr_MG3",  "15-apr_MG4", "15-apr_MG5", "15-apr_MG6", 
+                             "01-may_MG3", "01-may_MG4", "01-may_MG5", "01-may_MG6",
+                             "15-may_MG3", "15-may_MG4", "15-may_MG5", "15-may_MG6",
+                             "01-jun_MG3", "01-jun_MG4", "01-jun_MG5", "01-jun_MG6",  
+                             "15-jun_MG3", "15-jun_MG4", "15-jun_MG5", "15-jun_MG6")) %>% 
+   filter(cluster == 1 & PDxMG == "15-apr_MG4" |
+          cluster == 1 & PDxMG == "01-may_MG4" |
+          cluster == 1 & PDxMG == "15-may_MG4" |
+          cluster == 1 &  PDxMG == "15-apr_MG3"|
+          cluster == 1 & PDxMG == "01-may_MG3" |
+          cluster == 1 & PDxMG == "01-jun_MG4" |
+           
+           cluster == 2 & PDxMG == "15-apr_MG4" |
+           cluster == 2 & PDxMG == "01-may_MG4" |
+           cluster == 2 & PDxMG == "15-may_MG4" |
+           cluster == 2 & PDxMG == "01-jun_MG4" |
+           cluster == 2 & PDxMG == "15-apr_MG3" |
+           cluster == 2 & PDxMG == "15-apr_MG5" |
+ 
+          cluster == 3 & PDxMG == "15-apr_MG5" |
+          cluster == 3 & PDxMG == "15-apr_MG6" |
+          cluster == 3 & PDxMG == "15-may_MG4" |
+          cluster == 3 & PDxMG == "01-may_MG5" |
+          cluster == 3 & PDxMG == "01-may_MG4" |
+          cluster == 3 & PDxMG == "01-may_MG6" ) %>%
+  ##ggplot##
+  ggplot(aes(emmean, PDxMG))+
+  
+  geom_errorbarh(aes(color = Genotype,xmin = emmean - SE, xmax = emmean +SE), 
+                 width=.5, size=0.5,
+                 show.legend = F)+
+  
+  geom_point(aes(fill = Genotype),
+             shape = 21, size = 3) +
+  
+  scale_fill_manual(values = c("#4A586E", "#C1BBB7", "#D8664D", "#748700"), 
+                    aesthetics = c("fill", "color"))+
+  
+  geom_text(aes(label = .group,  vjust = -0.5))+
+  
+  facet_wrap(~cluster, scales = "free") + 
+  theme_bw() +
+  theme(panel.grid = element_blank(),
+        strip.background = element_rect(fill = "#f5f5f5"), strip.text = element_text(face = "italic", size = 11, hjust = 0.5),
+        text = element_text(size = 11),
+        legend.title = element_text(), legend.position = "bottom",
+        axis.ticks.length=unit(-0.10, "cm"), legend.background = element_blank(),
+        axis.text.x = element_text(margin=unit(c(0.1,0.1,0.1,0.1), "cm"), size = 10),
+        axis.text.y = element_text(margin=unit(c(0.1,0.1,0.1,0.1), "cm"), size = 10))
+  
+  
+  
+```
+
+## 1.3. Frequency plot
+```{r}
+
+current_clim %>% 
+ggplot(aes(yield_sim, color=PDxMG)) + 
+       stat_ecdf(geom = "step", size=1) + 
+      # labs(x="Sepal Width", y="%") +
+       scale_y_continuous(breaks=seq(0,1,0.1), labels = seq(0,100,10)) + 
+       #scale_color_manual(values=c("#96ceb4", "#ff6f69", "#ffcc5c")) + 
+  facet_wrap(~cluster)+
+  theme_bw() +
+  theme(panel.grid = element_blank(),
+        strip.background = element_rect(fill = "#f5f5f5"), strip.text = element_text(face = "italic", size = 11, hjust = 0.1),
+        text = element_text(size = 11),
+        legend.title = element_text(), legend.position = "bottom",
+        axis.ticks.length=unit(-0.10, "cm"), legend.background = element_blank(),
+        axis.text.x = element_text(margin=unit(c(0.5,0.5,0.5,0.5), "cm"), size = 10),
+        axis.text.y = element_text(margin=unit(c(0.5,0.5,0.5,0.5), "cm"), size = 10))
+
+
+### best 6 combinations of PD*MG ###
+current_clim %>% 
+  filter(cluster == 1 & PDxMG == "15-apr_MG4" |
+           cluster == 1 & PDxMG == "01-may_MG4" |
+           cluster == 1 & PDxMG == "15-may_MG4" |
+           cluster == 1 &  PDxMG == "15-apr_MG3" |
+           cluster == 1 & PDxMG == "01-may_MG3" |
+           cluster == 1 & PDxMG == "01-jun_MG4" |
+           
+           cluster == 2 & PDxMG == "15-apr_MG4	" |
+           cluster == 2 & PDxMG == "01-may_MG4" |
+           cluster == 2 & PDxMG == "15-may_MG4" |
+           cluster == 2 &  PDxMG == "01-jun_MG4" |
+           cluster == 2 & PDxMG == "15-apr_MG3" |
+           cluster == 2 & PDxMG == "15-apr_MG5" |
+           
+           
+           cluster == 3 & PDxMG == "15-apr_MG5" |
+           cluster == 3 & PDxMG == "15-apr_MG6" |
+           cluster == 3 & PDxMG == "15-may_MG4" |
+           cluster == 3 & PDxMG == "01-may_MG5" |
+           cluster == 3 & PDxMG == "01-may_MG4" |
+           cluster == 3 & PDxMG == "01-may_MG6" ) %>% 
+ggplot(aes(yield_sim, color=PDxMG)) + 
+       stat_ecdf(geom = "step", size=1) + 
+      # labs(x="Sepal Width", y="%") +
+       scale_y_continuous(breaks=seq(0,1,0.1), labels = seq(0,100,10)) + 
+       #scale_color_manual(values=c("#96ceb4", "#ff6f69", "#ffcc5c")) + 
+  facet_wrap(~cluster)+
+  theme_bw() +
+  theme(panel.grid = element_blank(),
+        strip.background = element_rect(fill = "#f5f5f5"), strip.text = element_text(face = "italic", size = 11, hjust = 0.1),
+        text = element_text(size = 11),
+        legend.title = element_text(), legend.position = "bottom",
+        axis.ticks.length=unit(-0.10, "cm"), legend.background = element_blank(),
+        axis.text.x = element_text(margin=unit(c(0.5,0.5,0.5,0.5), "cm"), size = 10),
+        axis.text.y = element_text(margin=unit(c(0.5,0.5,0.5,0.5), "cm"), size = 10))
+
+
+```
+
+```{r}
+current_clim %>% 
+   mutate(SowingDate = as.factor(SowingDate),
+         SowingDate = fct_relevel(SowingDate, 
+                                  "15-apr",  "01-may", 
+                                  "15-may", "01-jun", 
+                                  "15-jun")) %>% 
+  
+  group_by(cluster, SowingDate, Genotype, year) %>% 
+  mutate(yield = mean(yield_sim),
+            yield_sd = sd(yield_sim) ) %>% 
+  ungroup(SowingDate, Genotype, year) %>% 
+  mutate(mean_yield_cl = mean(yield),
+         sd_yield_cl = mean(yield_sd),
+         yield_sim = yield - mean_yield_cl,
+         yield_sim_sd = yield_sd - sd_yield_cl) %>% 
+  
+
+  
+  ggplot() +
+  geom_point(aes(yield_sim, yield_sim_sd, fill = Genotype), alpha = 0.5, shape = 21)+
+  scale_fill_manual(values = c("#8CBA51", "#FFE9A0", "#4A586E", "#FB9F82"), aesthetics = "fill")+
+  geom_vline(aes(xintercept = 0), color = "grey70")+
+  geom_hline(aes( yintercept = 0), color = "grey70")+
+  facet_grid(SowingDate ~ cluster)+
+  ylim(-1000, 1000)+
+  
+  theme_bw() +
+  theme(panel.grid = element_blank(),
+        strip.background = element_rect(fill = "#f5f5f5"), strip.text = element_text(face = "italic", size = 11, hjust = 0.1),
+        text = element_text(size = 11),
+        legend.title = element_text(), legend.position = "right",
+        axis.ticks.length=unit(-0.10, "cm"), legend.background = element_blank(),
+        axis.text.x = element_text(margin=unit(c(0.5,0.5,0.5,0.5), "cm"), size = 10),
+        axis.text.y = element_text(margin=unit(c(0.5,0.5,0.5,0.5), "cm"), size = 10))
+  
+```
+
+
+```{r}
+current_clim %>% 
+   mutate(SowingDate = as.factor(SowingDate),
+         SowingDate = fct_relevel(SowingDate, 
+                                  "15-apr",  "01-may", 
+                                  "15-may", "01-jun", 
+                                  "15-jun")) %>% 
+  
+  group_by(cluster, SowingDate, Genotype, year) %>% 
+  mutate(yield = mean(yield_sim),
+            yield_sd = sd(yield_sim) ) %>% 
+  ungroup(SowingDate, Genotype, year) %>% 
+  mutate(mean_yield_cl = mean(yield),
+         sd_yield_cl = mean(yield_sd),
+         yield_sim = yield - mean_yield_cl,
+         yield_sim_sd = yield_sd - sd_yield_cl) %>% 
+  
+
+  
+  ggplot() +
+  geom_point(aes(yield_sim, yield_sim_sd, fill = SowingDate), alpha = 0.5, shape = 21, size = 2)+
+  scale_fill_manual(values = c("#8CBA51", "#FFE9A0", "#4A586E", "#FB9F82", "white"), aesthetics = "fill")+
+  geom_vline(aes(xintercept = 0), color = "grey70")+
+  geom_hline(aes( yintercept = 0), color = "grey70")+
+  facet_grid(Genotype ~ cluster)+
+  ylim(-1000, 1000)+
+  
+  theme_bw() +
+  theme(panel.grid = element_blank(),
+        strip.background = element_rect(fill = "#f5f5f5"), strip.text = element_text(face = "italic", size = 11, hjust = 0.1),
+        text = element_text(size = 11),
+        legend.title = element_text(), legend.position = "right",
+        axis.ticks.length=unit(-0.10, "cm"), legend.background = element_blank(),
+        axis.text.x = element_text(margin=unit(c(0.5,0.5,0.5,0.5), "cm"), size = 10),
+        axis.text.y = element_text(margin=unit(c(0.5,0.5,0.5,0.5), "cm"), size = 10))
+```
+## 1.4. Bar
+```{r}
+
+### ALL ###
+current_clim %>%
+  mutate(SowingDate = as.factor(SowingDate),
+         PDxMG = fct_relevel(PDxMG, 
+                                  "15-apr_MG3",  "15-apr_MG4", "15-apr_MG5", "15-apr_MG6", 
+                     "01-may_MG3", "01-may_MG4", "01-may_MG5", "01-may_MG6",
+                     "15-may_MG3", "15-may_MG4", "15-may_MG5", "15-may_MG6",
+                     "01-jun_MG3", "01-jun_MG4", "01-jun_MG5", "01-jun_MG6",  
+                     "15-jun_MG3", "15-jun_MG4", "15-jun_MG5", "15-jun_MG6")) %>% 
+  group_by(cluster, SowingDate, Genotype, PDxMG) %>% 
+  summarise(yield = mean(yield_sim) ) %>% 
+
+  ggplot( aes(x=PDxMG , y=yield)) +
+  geom_bar(stat="identity", fill="#f68060", alpha=.6, width=.4) +
+  coord_flip() +
+  xlab("") +
+
+  facet_wrap(~cluster, scales = "free")+
+  theme_bw()
+
+
+
+means_cld.df %>%
+  mutate(PDxMG = as.factor(PDxMG),
+        # PDxMG = fct_relevel(PDxMG, 
+        #                          "15-apr_MG3",  "15-apr_MG4", "15-apr_MG5", "15-apr_MG6", 
+        #             "01-may_MG3", "01-may_MG4", "01-may_MG5", "01-may_MG6",
+        #             "15-may_MG3", "15-may_MG4", "15-may_MG5", "15-may_MG6",
+        #             "01-jun_MG3", "01-jun_MG4", "01-jun_MG5", "01-jun_MG6",  
+        #             "15-jun_MG3", "15-jun_MG4", "15-jun_MG5", "15-jun_MG6")
+         ) %>% 
+   mutate(PDxMG = fct_reorder(PDxMG, emmean)) %>%
+  
+  ggplot( aes(x=PDxMG , y=emmean, label = `.group`)) +
+  geom_bar(aes(fill=Genotype),stat="identity", alpha=.5, width=.6, color = "black") +
+  scale_fill_manual(values = c("#4A586E", "#EEDC7C", "#D8664D", "#748700"), aesthetics = "fill")+
+
+
+  coord_flip() +
+  geom_text(hjust= 1.5, vjust= 0.4, size = 4)+
+
+  
+  xlab("") +
+
+  facet_wrap(~cluster, scales = "free")+
+  
+  theme_bw() +
+  theme(
+        strip.text = element_text(face = "italic", size = 10, hjust = 0.5),
+        text = element_text(size = 10),
+        legend.title = element_text(), legend.position = "bottom",
+        axis.ticks.length=unit(-0.10, "cm"), legend.background = element_blank(),
+        axis.text.x = element_text(margin=unit(c(0.1,0.1,0.1,0.1), "cm"), size = 10),
+        axis.text.y = element_text(margin=unit(c(0.1,0.1,0.1,0.1), "cm"), size = 10))
+
+
+### best 6 PD*MG combinations ###
+means_cld.df %>%
+   filter(cluster == 1 & PDxMG == "15-apr_MG4" |
+          cluster == 1 & PDxMG == "01-may_MG4" |
+          cluster == 1 & PDxMG == "15-may_MG4" |
+          cluster == 1 &  PDxMG == "15-apr_MG3"|
+          cluster == 1 & PDxMG == "01-may_MG3" |
+          cluster == 1 & PDxMG == "01-jun_MG4" |
+           
+           cluster == 2 & PDxMG == "15-apr_MG4" |
+           cluster == 2 & PDxMG == "01-may_MG4" |
+           cluster == 2 & PDxMG == "15-may_MG4" |
+           cluster == 2 & PDxMG == "01-jun_MG4" |
+           cluster == 2 & PDxMG == "15-apr_MG3" |
+           cluster == 2 & PDxMG == "15-apr_MG5" |
+ 
+          cluster == 3 & PDxMG == "15-apr_MG5" |
+          cluster == 3 & PDxMG == "15-apr_MG6" |
+          cluster == 3 & PDxMG == "15-may_MG4" |
+          cluster == 3 & PDxMG == "01-may_MG5" |
+          cluster == 3 & PDxMG == "01-may_MG4" |
+          cluster == 3 & PDxMG == "01-may_MG6" ) %>% 
+  
+  mutate(SowingDate = as.factor(SowingDate),
+         PDxMG = fct_relevel(PDxMG, 
+                                  "15-apr_MG3",  "15-apr_MG4", "15-apr_MG5",
+                             "15-apr_MG6", 
+                     "01-may_MG3", "01-may_MG4", "01-may_MG5", "01-may_MG6",
+                     "15-may_MG3", "15-may_MG4", "15-may_MG5", "15-may_MG6",
+                     "01-jun_MG3", "01-jun_MG4", "01-jun_MG5", "01-jun_MG6",  
+                     "15-jun_MG3", "15-jun_MG4", "15-jun_MG5", "15-jun_MG6")) %>% 
+  
+
+  
+# mutate(PDxMG = as.factor(PDxMG)) %>% 
+# mutate(PDxMG = fct_reorder(PDxMG, emmean)) %>%
+
+  
+  ggplot( aes(x=PDxMG , y=emmean, label = `.group`)) +
+  geom_bar(aes(fill=Genotype),stat="identity", alpha=.5, width=.6, color = "black") +
+  scale_fill_manual(values = c("#4A586E", "#EEDC7C", "#D8664D", "#748700"), aesthetics = "fill")+
+  coord_flip() +
+  geom_text(hjust= 1.5, vjust= 0.4, size = 4)+
+  xlab("") +
+  ylab("Yield")+
+  facet_wrap(~cluster, scales = "free")+
+  theme_bw() +
+  theme(strip.text = element_text(face = "italic", size = 10, hjust = 0.5),
+        text = element_text(size = 10),
+        legend.title = element_text(), legend.position = "bottom",
+        axis.ticks.length=unit(-0.10, "cm"), legend.background = element_blank(),
+        axis.text.x = element_text(margin=unit(c(0.1,0.1,0.1,0.1), "cm"), size = 10),
+        axis.text.y = element_text(margin=unit(c(0.1,0.1,0.1,0.1), "cm"), size = 10))
+```
+
+## 1.5. Violin
+```{r}
+### labels positions ###
+means_cld.df <- means_cld.df %>% 
+  mutate(`.group` = str_replace_all(`.group`, "[[:space:]]", ""))
+
+positions <- current_clim %>% 
+   mutate(SowingDate = as.factor(SowingDate),
+         SowingDate = fct_relevel(SowingDate, 
+                                  "15-apr",  "01-may", 
+                                  "15-may", "01-jun", 
+                                  "15-jun", "01-jul", "15-jul")) %>% 
+  mutate(Genotype = as.factor(Genotype)) %>% 
+  
+  group_by(SowingDate, Genotype, cluster) %>% 
+  summarise(ypos = max(yield_sim , na.rm = TRUE) + 500) %>% 
+  ungroup() %>% 
+  left_join(current_clim %>% 
+  filter(site == "Assaria" |
+          site == "Kiro" |
+          site == "Pittsburg" ) %>% 
+
+   mutate(SowingDate = as.factor(SowingDate),
+         SowingDate = fct_relevel(SowingDate, 
+                                  "15-apr",  "01-may", 
+                                  "15-may", "01-jun", 
+                                  "15-jun", "01-jul", "15-jul")) %>% 
+  mutate(Genotype = as.factor(Genotype)) %>% 
+  left_join(means_cld.df %>% 
+              dplyr::select(cluster, SowingDate, Genotype, `.group`) , 
+            by= c("cluster", "SowingDate", "Genotype") ) )
+
+
+### plot ###
+current_yield <- current_clim %>% 
+   mutate(SowingDate = as.factor(SowingDate),
+         SowingDate = fct_relevel(SowingDate, 
+                                  "15-apr",  "01-may", 
+                                  "15-may", "01-jun", 
+                                  "15-jun", "01-jul", "15-jul")) %>% 
+  mutate(Genotype = as.factor(Genotype)) %>% 
+
+ left_join(current_clim %>% 
+  filter(year == 2019 & site == "Assaria" |
+           year == 2019 & site == "Kiro" |
+           year == 2019 & site == "Pittsburg" ) %>% 
+
+   mutate(SowingDate = as.factor(SowingDate),
+         SowingDate = fct_relevel(SowingDate, 
+                                  "15-apr",  "01-may", 
+                                  "15-may", "01-jun", 
+                                  "15-jun", "01-jul", "15-jul")) %>% 
+  mutate(Genotype = as.factor(Genotype)) %>% 
+  left_join(means_cld.df, by= c("cluster", "SowingDate", "Genotype") ) ) %>% 
+
+  
+  ggplot(aes(x=Genotype, y=yield_sim, fill=Genotype, label = `.group`)) +
+
+  geom_boxplot(aes(fill = NULL), width = .3 )+
+  geom_violin() +
+
+  scale_fill_viridis(discrete = TRUE, alpha=0.6, option="A") +
+  geom_text(aes(label = group, y = ypos ), 
+            size = 4,
+            stat = "identity", position = "identity",
+           hjust = 0.5,
+           check_overlap = TRUE,
+           data = positions) +
+
+ facet_grid(cluster~SowingDate, scales = "free") +
+ # facet_wrap(~cluster, ncol = 1, nrow = 3)+
+  ylim(0, 8000)+
+
+  ylab(expression(`Simulated grain yield`~(kg~ha ^-1)) )+
+  xlab("Sowing date")+
+
+  theme_bw()+
+  theme(panel.grid = element_blank(),
+    strip.text = element_text(face = "italic", size = 10, hjust = 0.5),
+        text = element_text(size = 11),
+        legend.title = element_text(), legend.position = "right",
+        axis.title.y = element_text(size = 11),
+        axis.ticks.length= unit(-0.10, "cm"), legend.background = element_blank(),
+        axis.text.x = element_blank(),
+        axis.text.y = element_text(margin=unit(c(0.1,0.1,0.1,0.1), "cm"), size = 11))
+
+
+ggsave("../Output/current_met/current_yield.tiff", height = 7, width = 10)
+
+
+### plot II ###
+current_yield <- current_clim %>% 
+   mutate(SowingDate = as.factor(SowingDate),
+         SowingDate = fct_relevel(SowingDate, 
+                                  "15-apr",  "01-may", 
+                                  "15-may", "01-jun", 
+                                  "15-jun", "01-jul", "15-jul")) %>% 
+  mutate(Genotype = as.factor(Genotype)) %>% 
+
+ left_join(current_clim %>% 
+  filter(year == 2019 & site == "Assaria" |
+           year == 2019 & site == "Kiro" |
+           year == 2019 & site == "Pittsburg" ) %>% 
+
+   mutate(SowingDate = as.factor(SowingDate),
+         SowingDate = fct_relevel(SowingDate, 
+                                  "15-apr",  "01-may", 
+                                  "15-may", "01-jun", 
+                                  "15-jun", "01-jul", "15-jul")) %>% 
+  mutate(Genotype = as.factor(Genotype)) %>% 
+  left_join(means_cld.df, by= c("cluster", "SowingDate", "Genotype") ) ) %>% 
+
+  
+  ggplot(aes(x=Genotype, y=yield_sim, fill=Genotype, label = `.group`)) +
+
+
+  geom_violin() +
+    geom_boxplot(alpha = 0.6, width = .3, color = "Black" )+
+
+  scale_fill_viridis(discrete = TRUE, alpha=0.3, option="A") +
+  geom_text(aes(label = `.group`, y = ypos ), 
+            size = 4,
+            stat = "identity", position = "identity",
+           hjust = 0.5,
+           check_overlap = TRUE,
+           data = positions) +
+
+ facet_grid(cluster~SowingDate, scales = "free") +
+ # facet_wrap(~cluster, ncol = 1, nrow = 3)+
+  ylim(0, 8000)+
+
+  ylab(expression(`Simulated grain yield`~(kg~ha ^-1)) )+
+  xlab("Sowing date")+
+
+  theme_bw()+
+  theme(panel.grid = element_blank(),
+    strip.text = element_text(face = "italic", size = 10, hjust = 0.5),
+        text = element_text(size = 11),
+        legend.title = element_text(), legend.position = "right",
+        axis.title.y = element_text(size = 11),
+        axis.ticks.length= unit(-0.10, "cm"), legend.background = element_blank(),
+        axis.text.x = element_blank(),
+        axis.text.y = element_text(margin=unit(c(0.1,0.1,0.1,0.1), "cm"), size = 11))
+
+```
+
+## 1.6. Heat plot
+```{r}
+
+### yield ###
+heat_current # <- 
+current_clim %>% 
+    mutate(ID = str_replace_all(ID, "_", "-")) %>% 
+  group_by(cluster, Genotype, SowingDate) %>% 
+  summarise(yield = mean(yield_sim),
+            yield_sd = sd(yield_sim)) %>% 
+  mutate(SowingDate = as.factor(SowingDate),
+         SowingDate = fct_relevel(SowingDate, 
+                                  "15-apr",  "01-may", 
+                                  "15-may", "01-jun", 
+                                  "15-jun", "01-jul", "15-jul"),
+ 
+         yield_sd = round(yield_sd, digits = 0)) %>% 
+  
+  ggplot(aes(x = SowingDate, y = Genotype, fill = yield))+
+  geom_tile() +
+  scale_fill_viridis(discrete=FALSE,  
+                     alpha=0.8, option="magma",
+                     begin = 0, end = 1, direction = 1) +
+   labs(fill = expression(`Yield`~(kg~ha ^-1))  ,
+       x = "Sowing date", 
+       y = "Genotype")+
+  geom_text(aes(label=yield_sd),
+            size=2.5,
+            hjust = 0.1,
+            vjust = 0.1)+
+  
+  facet_wrap(~cluster, nrow = 3)+
+  theme_bw()+
+    theme(panel.grid = element_blank(),
+    strip.text = element_text(face = "italic", size = 10, hjust = 0.5),
+        text = element_text(size = 11),
+        legend.title = element_text(), legend.position = "right",
+        axis.title.y = element_text(size = 11),
+        axis.ticks.length= unit(-0.10, "cm"), legend.background = element_blank(),
+        axis.text.x = element_text(margin=unit(c(0.1,0.1,0.1,0.1), "cm"), size = 11),
+        axis.text.y = element_text(margin=unit(c(0.1,0.1,0.1,0.1), "cm"), size = 11))
+
+ggsave("../Output/current_met/heat_current.tiff", height = 8, width = 8)
+
+
+### SD ###
+heat_current2 <- 
+current_clim %>% 
+  filter(year > 2011 & year < 2022) %>% 
+    mutate(ID = str_replace_all(ID, "_", "-"),
+           Genotype = case_when(Genotype == "Generic_MG3" ~ "III",
+                              Genotype == "Generic_MG4" ~ "IV",
+                              Genotype == "Generic_MG5" ~ "V",
+                              Genotype == "Generic_MG6" ~ "VI",
+                              TRUE ~ "NA")) %>% 
+  group_by(cluster, Genotype, SowingDate) %>% 
+  summarise(yield = mean(yield_sim),
+            yield_sd = sd(yield_sim)) %>% 
+  mutate(SowingDate = as.factor(SowingDate),
+         SowingDate = fct_relevel(SowingDate, 
+                                  "15-apr",  "01-may", 
+                                  "15-may", "01-jun", 
+                                  "15-jun", "01-jul", "15-jul"),
+         Genotype = as.factor(Genotype),
+         Genotype = fct_relevel(Genotype, "III", "IV", "V", "VI")) %>% 
+
+
+  ggplot(aes(SowingDate, Genotype,fill = yield, size = yield_sd )) + 
+  geom_point(shape =21)+
+  
+  scale_fill_viridis(discrete=FALSE,  
+                     alpha=0.8, option="magma",
+                     begin = 1, end = 0, direction = 1) +
+  scale_size_continuous(range = c(3,16))+
+  
+  labs(fill = expression(`Yield`~(kg~ha ^-1)) ,
+       size = "Standard deviation",
+       x = "Planting date", 
+       y = "Maturity group")+
+  facet_wrap(~cluster, nrow = 3)+
+  theme_bw()+
+  theme(panel.grid = element_blank(),
+    strip.text = element_text(face = "italic", size = 12, hjust = 0.5),
+        text = element_text(size = 12),
+        legend.title = element_text(), legend.position = "right",
+        axis.title.y = element_text(size = 12),
+        axis.ticks.length= unit(-0.10, "cm"), legend.background = element_blank(),
+        axis.text.x = element_text(margin=unit(c(0.2,0.2,0.2,0.2), "cm"), size = 12),
+        axis.text.y = element_text(margin=unit(c(0.3,0.3,0.3,0.3), "cm"), size = 12))
+
+
+ggsave("../Output/current_met/heat_current2.tiff", height = 8, width = 7)
+ggsave("../Output/current_met/heat_current2.pdf", height = 8, width = 7)
+```
+##abstract
+```{r}
+heat_plot_gral <- current_clim %>% 
+  filter(year > 2011 & year < 2022) %>% 
+    mutate(ID = str_replace_all(ID, "_", "-"),
+           Genotype = case_when(Genotype == "Generic_MG3" ~ "III",
+                              Genotype == "Generic_MG4" ~ "IV",
+                              Genotype == "Generic_MG5" ~ "V",
+                              Genotype == "Generic_MG6" ~ "VI",
+                              TRUE ~ "NA")) %>% 
+  group_by(Genotype, SowingDate) %>% 
+  summarise(yield = mean(yield_sim),
+            yield_sd = sd(yield_sim)) %>% 
+  mutate(SowingDate = as.factor(SowingDate),
+         SowingDate = fct_relevel(SowingDate, 
+                                  "15-apr",  "01-may", 
+                                  "15-may", "01-jun", 
+                                  "15-jun", "01-jul", "15-jul"),
+         Genotype = as.factor(Genotype),
+         Genotype = fct_relevel(Genotype, "III", "IV", "V", "VI")) %>% 
+
+
+  ggplot(aes(SowingDate, Genotype,fill = yield, size = yield_sd )) + 
+  geom_point(shape =21)+
+  
+  scale_fill_viridis(discrete=FALSE,  
+                     alpha=0.8, option="magma",
+                     begin = 1, end = 0, direction = 1) +
+  scale_size_continuous(range = c(5,16))+
+  
+  labs(fill = expression(`Yield`~(kg~ha ^-1)) ,
+       size = "Standard deviation",
+       x = "Sowing date", 
+       y = "Maturity group")+
+  theme_bw()+
+  theme(panel.grid = element_blank(),
+    strip.text = element_text(face = "italic", size = 15, hjust = 0.5),
+        text = element_text(size = 12),
+        legend.title = element_text(size = 12), legend.position = "right",
+        axis.title.y = element_text(size = 16),
+      axis.title.x = element_text(size = 16),
+    
+        axis.ticks.length= unit(-0.10, "cm"), legend.background = element_blank(),
+        axis.text.x = element_text(margin=unit(c(0.2,0.2,0.2,0.2), "cm"), size = 15),
+        axis.text.y = element_text(margin=unit(c(0.3,0.3,0.3,0.3), "cm"), size = 15))
+
+ggsave("../Output/current_met/heat_plot_gral.png", height = 4.9, width = 7.7)
+ggsave("../Output/current_met/heat_plot_gral.pdf", height = 4.9, width = 7.7)
+```
+
+
+```{r}
+current_clim %>% 
+  filter(year > 2011 & year < 2022) %>% 
+    mutate(ID = str_replace_all(ID, "_", "-"),
+           Genotype = case_when(Genotype == "Generic_MG3" ~ "III",
+                              Genotype == "Generic_MG4" ~ "IV",
+                              Genotype == "Generic_MG5" ~ "V",
+                              Genotype == "Generic_MG6" ~ "VI",
+                              TRUE ~ "NA")) %>% 
+  group_by(cluster, Genotype, SowingDate) %>% 
+  summarise(yield = mean(yield_sim),
+            yield_sd = sd(yield_sim)) %>% 
+  mutate(SowingDate = as.factor(SowingDate),
+         SowingDate = fct_relevel(SowingDate, 
+                                  "15-apr",  "01-may", 
+                                  "15-may", "01-jun", 
+                                  "15-jun", "01-jul", "15-jul"),
+         Genotype = as.factor(Genotype),
+         Genotype = fct_relevel(Genotype, "III", "IV", "V", "VI")) %>% 
+  ungroup(cluster, Genotype, SowingDate) %>% 
+  group_by(Genotype, SowingDate) %>% 
+  summarise(yield = mean(yield),
+            yield_sd = sd(yield_sd)) %>% 
+  filter(SowingDate == "15-apr" |
+           SowingDate == "15-jul") 
+
+```
+
+
+```{r}
+soybean_complete %>% 
+  mutate(cluster = case_when(site == "Assaria" ~ 1,
+                             site == "Belleville" ~ 1,
+                             site == "Riley" ~ 1,
+                             
+                             site == "Onaga" ~ 2,
+                             site == "Rossville" ~ 2,
+                             site == "Kiro" ~ 2,
+                             site == "Topeka" ~ 1,
+                             TRUE ~ 3), .before = site) %>% 
+  mutate(PDxMG = paste0(SowDate, "_", substr(genotype, 9,11))) %>% 
+  group_by(cluster, PDxMG, genotype, SowDate) %>% 
+  summarise(yield = mean(yield)) %>% 
+   ggplot( aes(x=PDxMG , y=yield, label = `.group`)) +
+  geom_bar(aes(fill=genotype),stat="identity", alpha=.5, width=.6, color = "black") +
+  scale_fill_manual(values = c("#4A586E", "#EEDC7C", "#D8664D", "#748700"), aesthetics = "fill")+
+  coord_flip() +
+  geom_text(hjust= 1.5, vjust= 0.4, size = 4)+
+  xlab("") +
+  ylab("Yield")+
+  facet_wrap(~cluster, scales = "free")+
+  theme_bw() +
+  theme(strip.text = element_text(face = "italic", size = 10, hjust = 0.5),
+        text = element_text(size = 10),
+        legend.title = element_text(), legend.position = "bottom",
+        axis.ticks.length=unit(-0.10, "cm"), legend.background = element_blank(),
+        axis.text.x = element_text(margin=unit(c(0.1,0.1,0.1,0.1), "cm"), size = 10),
+        axis.text.y = element_text(margin=unit(c(0.1,0.1,0.1,0.1), "cm"), size = 10))
+```
+
+
+```{r}
+
+current_clim %>% 
+  filter(cluster == 1 & PDxMG == "15-apr_MG4" |
+           cluster == 1 & PDxMG == "01-may_MG4" |
+           cluster == 1 & PDxMG == "15-may_MG4" |
+           cluster == 1 &  PDxMG == "15-apr_MG3" |
+           cluster == 1 & PDxMG == "01-may_MG3" |
+           cluster == 1 & PDxMG == "01-jun_MG4" |
+           
+           cluster == 2 & PDxMG == "15-apr_MG4	" |
+           cluster == 2 & PDxMG == "01-may_MG4" |
+           cluster == 2 & PDxMG == "15-may_MG4" |
+           cluster == 2 &  PDxMG == "01-jun_MG4" |
+           cluster == 2 & PDxMG == "15-apr_MG3" |
+           cluster == 2 & PDxMG == "15-apr_MG5" |
+           
+           
+           cluster == 3 & PDxMG == "15-apr_MG5" |
+           cluster == 3 & PDxMG == "15-apr_MG6" |
+           cluster == 3 & PDxMG == "15-may_MG4" |
+           cluster == 3 & PDxMG == "01-may_MG5" |
+           cluster == 3 & PDxMG == "01-may_MG4" |
+           cluster == 3 & PDxMG == "01-may_MG6" ) %>% 
+ggplot(aes(x = yield_sim, y = PDxMG) ) +
+  geom_density_ridges_gradient(
+    aes(fill = ..x..), scale = 3, size = 0.3
+    ) +
+  scale_fill_gradientn(
+    colours = c("#0D0887FF", "#CC4678FF", "#F0F921FF"),
+   name = "Yield" )+
+  facet_wrap(~cluster, scales = "free")+
+  labs(title = 'Yield') +
+  theme_bw() +
+  theme(
+        strip.text = element_text(face = "italic", size = 10, hjust = 0.5),
+        text = element_text(size = 10),
+        legend.title = element_text(), legend.position = "bottom",
+        axis.ticks.length=unit(-0.10, "cm"), legend.background = element_blank(),
+        axis.text.x = element_text(margin=unit(c(0.1,0.1,0.1,0.1), "cm"), size = 10),
+        axis.text.y = element_text(margin=unit(c(0.1,0.1,0.1,0.1), "cm"), size = 10))
+```
+#------------------------
+#2. FUTURE
+## Dataset
+```{r}
+Future_clim <- future_clim %>% 
+ # filter(year == 2052) %>% 
+  mutate(cluster = case_when(site == "Assaria" ~ "North-central",
+                             site == "Belleville" ~ "North-central",
+                             site == "Riley" ~ "North-central",
+                             
+                             site == "Onaga" ~ "North-east",
+                             site == "Rossville" ~ "North-east",
+                             site == "Kiro" ~ "North-east",
+                             site == "Topeka" ~ "North-east",
+                             TRUE ~ "South-east"), .before = site) %>% 
+  mutate(date = paste0(SowingDate, "-", substr(year, 3,4)),
+
+         date1 = format(strptime(date, format = "%d-%b-%y")), 
+         DOY = yday(date1)) %>% 
+
+  mutate(PDxMG = paste0(SowingDate, "_", substr(Genotype, 9, 11 )))
+```
+
+## 2.1. Lmer
+```{r}
+### Cluster 1 ###
+Future_cl1_m <- lmer(yield_sim ~ SowingDate*Genotype + (1|site), 
+                     data = Future_clim %>% 
+                       filter(cluster == "North-central" ) )
+
+car::Anova(Future_cl1_m, type = 3)
+options('contrasts')
+options(contrasts = c("contr.sum", "contr.poly")) # set the contrasts
+options('contrasts')
+
+Fut_m1_means <- emmeans::emmeans(Future_cl1_m, specs = pairwise~ SowingDate:Genotype) 
+
+Fut_m1_means_cld <- cld(Fut_m1_means,
+    adjust = "none",
+    Letters = letters,
+    reversed = TRUE,
+    comparisons = TRUE)
+
+Fut_m1_means_cld.df <- Fut_m1_means_cld %>% as.data.frame() %>% 
+  mutate(PDxMG = paste0(SowingDate, "_", substr(Genotype, 9, 11 )),
+         cluster = "North-central")
+
+### Cluster 2 ###
+Future_cl2_m <- lmer(yield_sim ~ SowingDate*Genotype + (1|site),
+                     data = Future_clim %>% 
+                       filter(cluster == "North-east" ))
+
+car::Anova(Future_cl2_m, type = 3)
+options('contrasts')
+options(contrasts = c("contr.sum", "contr.poly")) # set the contrasts
+options('contrasts')
+
+Fut_m2_means <- emmeans::emmeans(Future_cl2_m, specs = pairwise~ SowingDate:Genotype) 
+
+Fut_m2_means_cld <- cld(Fut_m2_means,
+    adjust = "none",
+    Letters = letters,
+    reversed = TRUE,
+    comparisons = TRUE)
+
+Fut_m2_means_cld.df <- Fut_m2_means_cld %>% as.data.frame() %>% 
+  mutate(PDxMG = paste0(SowingDate, "_", substr(Genotype, 9, 11 )),
+         cluster = "North-east")
+
+
+
+### Cluster 3 ###
+Future_cl3_m <- lmer(yield_sim ~ SowingDate*Genotype + (1|site),
+                     data = Future_clim %>% 
+                       filter(cluster == "South-east" ) )
+
+car::Anova(Future_cl3_m, type = 3)
+
+options('contrasts')
+options(contrasts = c("contr.sum", "contr.poly")) # set the contrasts
+options('contrasts')
+
+Fut_m3_means <- emmeans::emmeans(Future_cl3_m, specs = pairwise~ SowingDate:Genotype) 
+
+Fut_m3_means_cld <- cld(Fut_m3_means,
+    adjust = "none",
+    Letters = letters,
+    reversed = TRUE,
+    comparisons = TRUE)
+
+Fut_m3_means_cld.df <- Fut_m3_means_cld %>% as.data.frame() %>% 
+  mutate(PDxMG = paste0(SowingDate, "_", substr(Genotype, 9, 11 )),
+         cluster = "South-east")
+
+
+Fut_means_cld.df <- Fut_m1_means_cld.df %>% 
+  bind_rows(Fut_m2_means_cld.df) %>% 
+  bind_rows(Fut_m3_means_cld.df)
+```
+
+## 2.2. Bar
+```{r}
+sim_clim <- current_clim %>% 
+  filter(year == 2052) %>% 
+  
+  mutate(ID = str_replace_all(ID, "_", "-")) %>% 
+  bind_rows(Future_clim) %>% 
+  mutate(met = case_when(ID = str_detect(ID, "-Cur-") ~ "Current",
+                         TRUE ~ "Future")) %>% 
+   mutate(SowingDate = as.factor(SowingDate),
+         SowingDate = fct_relevel(SowingDate, 
+                                  "15-apr",  "01-may", 
+                                  "15-may", "01-jun", 
+                                  "15-jun", "01-jul", "15-jul"))
+
+dif_yield #<- 
+current_clim  %>% 
+  group_by(cluster, SowingDate, Genotype) %>% 
+
+  summarise(yield = mean(yield_sim),
+            yield_sd = sd(yield_sim)) %>% 
+  
+  left_join(Future_clim %>% 
+     filter(year == 2052) %>% 
+
+  group_by(cluster, SowingDate, Genotype) %>% 
+  summarise(yield_fut = mean(yield_sim),
+            yield_sd_fut = sd(yield_sim)) ) %>% 
+  mutate(dif_yield = yield_fut - yield) %>% 
+  
+  mutate(date = paste0(SowingDate, "-", substr(2022, 3,4)),
+         #date = str_replace_all(date, "-", "/"),
+         date1 = format(strptime(date, format = "%d-%b-%y")),
+         DOY = yday(date1))  %>% 
+   mutate(SowingDate = as.factor(SowingDate),
+         SowingDate = fct_relevel(SowingDate, 
+                                  "15-apr",  "01-may", 
+                                  "15-may", "01-jun", 
+                                  "15-jun", "01-jul", "15-jul")) %>% 
+
+  
+  ### ggplot ###
+  ggplot(aes(x = SowingDate, y = dif_yield, fill = SowingDate)) +
+  geom_col(color = "black") +
+  geom_hline(aes( yintercept = 0), color = "grey50") +
+  
+  #scale_fill_manual(values = c("#4A586E", "#EEDC7C", "#D8664D", "#748700", "#C1BBB7", "gray10", #"tomato", "black"), aesthetics = "fill") +
+  scale_fill_viridis(discrete = TRUE, alpha=0.7, option="A") +
+  ylim(-3000, 1000)+
+  facet_grid(Genotype ~ cluster)+
+  ylab("Future yield - Current yield")+
+  xlab( "Sowing date")+
+  labs(fill="Sowing date")+
+  
+  theme_bw() +
+  theme(panel.grid = element_blank(),
+        strip.background = element_rect(fill = "#f5f5f5"), 
+        strip.text = element_text(face = "italic", size = 12, hjust = 0.5),
+        text = element_text(size = 12),
+        legend.title = element_text(), legend.position = "right",
+        axis.ticks.length=unit(-0.10, "cm"), 
+        legend.background = element_blank(),
+        axis.text.x = element_text(margin=unit(c(0.1,0.1,0.1,0.1), "cm"), 
+                                   size = 12, angle = 90 ),
+        axis.text.y = element_text(margin=unit(c(0.1,0.1,0.1,0.1), "cm"), size = 12))
+
+
+ggsave("../Output/future_met/dif_yield.tiff", height = 6, width = 7)
+
+## agregar rinde futuro 
+
+
+```
+
+### 2.2.2. Bar 2
+```{r}
+current_clim  %>% 
+  filter(year > 2011 & year < 2022) %>% 
+  group_by(cluster, SowingDate, Genotype) %>% 
+
+  summarise(yield = mean(yield_sim),
+            yield_sd = sd(yield_sim)) %>% 
+  
+  left_join(Future_clim %>% 
+     filter(year > 2041 & year <= 2052) %>% 
+
+  group_by(cluster, SowingDate, Genotype) %>% 
+  summarise(yield_fut = mean(yield_sim),
+            yield_sd_fut = sd(yield_sim)) ) %>% 
+  mutate(dif_yield = yield_fut - yield,
+         dif_per = dif_yield *100/ yield) %>% 
+  
+  mutate(date = paste0(SowingDate, "-", substr(2022, 3,4)),
+         #date = str_replace_all(date, "-", "/"),
+         date1 = format(strptime(date, format = "%d-%b-%y")),
+         DOY = yday(date1))  %>% 
+   mutate(SowingDate = as.factor(SowingDate),
+         SowingDate = fct_relevel(SowingDate, 
+                                  "15-apr",  "01-may", 
+                                  "15-may", "01-jun", 
+                                  "15-jun", "01-jul", "15-jul")) %>% 
+
+  
+  ### ggplot ###
+  ggplot(aes(x = SowingDate, y = dif_per, fill = SowingDate)) +
+  geom_col(color = "black") +
+  geom_hline(aes( yintercept = 0), color = "grey50") +
+  
+  #scale_fill_manual(values = c("#4A586E", "#EEDC7C", "#D8664D", "#748700", "#C1BBB7", "gray10", #"tomato", "black"), aesthetics = "fill") +
+  scale_fill_viridis(discrete = TRUE, alpha=0.7, option="A") +
+ # ylim(-3000, 1000)+
+  facet_grid(Genotype ~ cluster)+
+  ylab("Future yield - Current yield")+
+  xlab( "Sowing date")+
+  labs(fill="Sowing date")+
+  
+  theme_bw() +
+  theme(panel.grid = element_blank(),
+        strip.background = element_rect(fill = "#f5f5f5"), 
+        strip.text = element_text(face = "italic", size = 12, hjust = 0.5),
+        text = element_text(size = 12),
+        legend.title = element_text(), legend.position = "right",
+        axis.ticks.length=unit(-0.10, "cm"), 
+        legend.background = element_blank(),
+        axis.text.x = element_text(margin=unit(c(0.1,0.1,0.1,0.1), "cm"), 
+                                   size = 12, angle = 90 ),
+        axis.text.y = element_text(margin=unit(c(0.1,0.1,0.1,0.1), "cm"), size = 12))
+```
+
+### 2.2.3. bar 3 este
+```{r}
+bar_dif_fut <- 
+current_clim  %>% 
+  filter(year > 2011 & year < 2022) %>% 
+  group_by(cluster, SowingDate, Genotype) %>% 
+
+  summarise(yield = mean(yield_sim),
+            yield_sd = sd(yield_sim)) %>% 
+  
+  left_join(Future_clim %>% 
+     filter(year > 2041 & year <= 2052) %>% 
+
+  group_by(cluster, SowingDate, Genotype) %>% 
+  summarise(yield_fut = mean(yield_sim),
+            yield_sd_fut = sd(yield_sim)) ) %>% 
+  mutate(dif_yield = yield_fut - yield) %>% 
+  
+  mutate(date = paste0(SowingDate, "-", substr(2022, 3,4)),
+         #date = str_replace_all(date, "-", "/"),
+         date1 = format(strptime(date, format = "%d-%b-%y")),
+         DOY = yday(date1))  %>% 
+   mutate(SowingDate = as.factor(SowingDate),
+         SowingDate = fct_relevel(SowingDate, 
+                                  "15-apr",  "01-may", 
+                                  "15-may", "01-jun", 
+                                  "15-jun", "01-jul", "15-jul"),
+         Genotype = case_when(Genotype == "Generic_MG3" ~ "MG 3",
+                              Genotype == "Generic_MG4" ~ "MG 4",
+                              Genotype == "Generic_MG5" ~ "MG 5",
+                              Genotype == "Generic_MG6" ~ "MG 6",
+                              TRUE ~ "NA")) %>%
+
+  
+######### ggplot ######### 
+  ggplot() +
+  geom_errorbar(mapping=aes(x=SowingDate, 
+                            ymin= yield_fut - yield_sd_fut , 
+                            ymax= yield_fut + yield_sd_fut), 
+                width=0.2, size=0.5, show.legend = F ) + 
+  geom_point(aes(x = SowingDate, y = yield_fut), shape = 21,
+             fill = "grey70", color = "black", size = 2.5, show.legend = F) +
+  #scale_color_manual(values = c("#000000", "#1F1F1F", "#3F3F3F", "#5E5E5E", "#7A7A7A", "#969696", "#C4C4C4" ),
+  #                   aesthetics = "color")+
+  scale_shape_manual(values = c(0, 15, 21, 19, 17, 6, 18))+
+  
+  geom_col( aes(x = SowingDate, y = dif_yield, fill = SowingDate), color = "black", show.legend = F ) +
+  geom_hline(aes( yintercept = 0), color = "grey50") +
+
+  scale_fill_viridis(discrete = TRUE, alpha= 0.8, option="A") +
+
+  facet_grid(Genotype ~ cluster)+
+  labs(y = expression(Yield~(kg~ha^-1)),
+       x = "Sowing date")+
+  scale_y_continuous(limits = c(-3000, 5000), breaks = seq(-3000, 4800, 1500))+
+  
+  theme_bw() +
+  theme(panel.grid = element_blank(),
+        strip.background = element_rect(fill = "#f5f5f5"), 
+        strip.text = element_text(face = "italic", size = 12, hjust = 0.5),
+        text = element_text(size = 12),
+        legend.title = element_text(), legend.position = "right",
+        axis.ticks.length=unit(-0.10, "cm"), 
+        legend.background = element_blank(),
+        axis.text.x = element_text(margin=unit(c(0.2,0.2,0.2,0.2), "cm"), 
+                                   size = 12, angle = 90, color = "black" ),
+        axis.text.y = element_text(margin=unit(c(0.2,0.2,0.2,0.2), "cm"), size = 12, color = "black" ))
+
+ggsave("../Output/future_met/bar_dif_fut.tiff", height = 9, width = 9)
+
+```
+
+### 2.2.4. bar 4
+```{r}
+bar_dif_fut <- 
+current_clim  %>% 
+  filter(year > 2011 & year < 2022) %>% 
+  group_by(cluster, SowingDate, Genotype) %>% 
+
+  summarise(yield = mean(yield_sim),
+            yield_sd = sd(yield_sim)) %>% 
+  
+  left_join(Future_clim %>% 
+     filter(year > 2041 & year <= 2052) %>% 
+
+  group_by(cluster, SowingDate, Genotype) %>% 
+  summarise(yield_fut = mean(yield_sim),
+            yield_sd_fut = sd(yield_sim)) ) %>% 
+  
+  mutate(dif_yield = yield_fut - yield,
+         dif_per = dif_yield *100/ yield) %>% 
+  
+  mutate(date = paste0(SowingDate, "-", substr(2022, 3,4)),
+         date1 = format(strptime(date, format = "%d-%b-%y")),
+         DOY = yday(date1))  %>% 
+  
+   mutate(SowingDate = as.factor(SowingDate),
+         SowingDate = fct_relevel(SowingDate, 
+                                  "15-apr",  "01-may", 
+                                  "15-may", "01-jun", 
+                                  "15-jun", "01-jul", "15-jul"),
+         Genotype = case_when(Genotype == "Generic_MG3" ~ "MG 3",
+                              Genotype == "Generic_MG4" ~ "MG 4",
+                              Genotype == "Generic_MG5" ~ "MG 5",
+                              Genotype == "Generic_MG6" ~ "MG 6",
+                              TRUE ~ "NA"))
+
+ bar_dif_fut_2 <- bar_dif_fut %>%  
+######### ggplot ######### 
+  ggplot() +
+  geom_errorbar(mapping=aes(x=SowingDate, 
+                            ymin= yield_fut - yield_sd_fut , 
+                            ymax= yield_fut + yield_sd_fut), 
+                width=0.2, size=0.5, show.legend = F ) + 
+  geom_point(aes(x = SowingDate, y = yield_fut), shape = 21,
+             fill = "grey70", color = "black", size = 2, show.legend = F) +
+  #scale_color_manual(values = c("#000000", "#1F1F1F", "#3F3F3F", "#5E5E5E", "#7A7A7A", "#969696", "#C4C4C4" ),
+  #                   aesthetics = "color")+
+
+  
+  geom_col( aes(x = SowingDate, y = dif_per / scaleRight , fill = SowingDate),
+            color = "black", show.legend = F ) +
+  geom_hline(aes( yintercept = 0), color = "grey50") +
+  
+
+  scale_y_continuous(name = expression(Yield~(kg~ha^-1)) ,
+                  
+                     sec.axis = sec_axis(~.*scaleRight, name = "Yield change (%)", 
+                                                           breaks=seq(-100,100,20))) +
+  
+  
+  scale_fill_viridis(discrete = TRUE, alpha= 0.8, option="A") +
+
+  facet_grid(Genotype ~ cluster)+
+  labs(y = expression(Yield~(kg~ha^-1)),
+       x = "Sowing date")+
+  
+  theme_bw() +
+  theme(panel.grid = element_blank(),
+        strip.background = element_rect(fill = "#f5f5f5"), 
+        strip.text.x = element_text(face = "italic", size = 12, hjust = 0.5),
+        strip.text.y = element_blank(),
+        text = element_text(size = 12),
+        legend.title = element_text(), legend.position = "right",
+        axis.ticks.length=unit(-0.10, "cm"), 
+        legend.background = element_blank(),
+        axis.text.x = element_text(margin=unit(c(0.2,0.2,0.2,0.2), "cm"), 
+                                   size = 12, angle = 90, color = "black" ),
+        axis.text.y = element_text(margin=unit(c(0.2,0.2,0.2,0.2), "cm"), 
+                                   size = 12, color = "black" ),
+        axis.text.y.right = element_text(margin=unit(c(0.2,0.2,0.2,0.2), "cm"), 
+                                         size = 12, color = "black" ))
+
+ggsave("../Output/future_met/bar_dif_fut_2.tiff", height = 7, width = 9)
+
+ymax <- 1000
+scaleRight <- max(bar_dif_fut$dif_per)/ymax
+
+```
+
+### 2.2.4. bar 5
+```{r}
+bar_dif_fut_3 <- 
+### 1. Modify current weather ###
+current_clim  %>% 
+  mutate(ID = str_replace_all(ID, "_", "-")) %>% 
+  filter(year > 2011 & year < 2022) %>% 
+  group_by(cluster, SowingDate, Genotype) %>% 
+  summarise(yield_cur = mean(yield_sim),
+            yield_sd_cur = sd(yield_sim)) %>% 
+
+  
+### 2. Join and modify with the Future weather ###
+  left_join(Future_clim %>% 
+     filter(year > 2041 & year <= 2052) %>% 
+
+  group_by(cluster, SowingDate, Genotype) %>% 
+        rename("yield_simb" = yield_sim) %>% 
+  summarise(yield_fut = mean(yield_simb),
+            yield_sd_fut = sd(yield_simb))) %>% 
+
+   mutate(SowingDate = as.factor(SowingDate),
+         SowingDate = fct_relevel(SowingDate, 
+                                  "15-apr",  "01-may", 
+                                  "15-may", "01-jun", 
+                                  "15-jun", "01-jul", "15-jul"),
+         Genotype = case_when(Genotype == "Generic_MG3" ~ "MG III",
+                              Genotype == "Generic_MG4" ~ "MG IV",
+                              Genotype == "Generic_MG5" ~ "MG V",
+                              Genotype == "Generic_MG6" ~ "MG VI",
+                              TRUE ~ "NA")) %>%
+  
+  mutate(dif_yield = yield_fut - yield_cur,
+         sd = sd(dif_yield)) %>% 
+
+#############  
+### 3. Plot ###
+  ggplot() +
+  geom_errorbar(mapping=aes(x=SowingDate, 
+                            ymin= yield_fut - yield_sd_fut , 
+                            ymax= yield_fut + yield_sd_fut), 
+                width=0.2, size=0.5, show.legend = F ) + 
+  geom_point(aes(x = SowingDate, y = yield_fut), shape = 21,
+             fill = "grey70", color = "black", size = 2.5, show.legend = F) +
+ 
+
+
+  scale_shape_manual(values = c(0, 15, 21, 19, 17, 6, 18))+
+  
+  geom_col( aes(x = SowingDate, y = dif_yield, fill = SowingDate), color = "black", show.legend = F ) +
+  geom_errorbar(mapping=aes(x=SowingDate, 
+                            ymin= dif_yield - sd , 
+                            ymax= dif_yield + sd), 
+                width=0.2, size=0.5, show.legend = F ) + 
+  geom_hline(aes( yintercept = 0), color = "grey50") +
+
+  scale_fill_viridis(discrete = TRUE, alpha= 0.8, option="A") +
+
+  facet_grid(Genotype ~ cluster)+
+  labs(y = expression(Yield~(kg~ha^-1)),
+       x = "Planting date")+
+  scale_y_continuous(limits = c(-4000, 4800), breaks = seq(-3500, 4800, 1500))+
+  
+  theme_bw() +
+  theme(panel.grid = element_blank(),
+        strip.background = element_rect(fill = "#f5f5f5"), 
+        strip.text = element_text(face = "italic", size = 12, hjust = 0.5),
+        text = element_text(size = 12),
+        legend.title = element_text(), legend.position = "right",
+        axis.ticks.length=unit(-0.10, "cm"), 
+        legend.background = element_blank(),
+        axis.text.x = element_text(margin=unit(c(0.2,0.2,0.2,0.2), "cm"), 
+                                   size = 12, angle = 90, color = "black" ),
+        axis.text.y = element_text(margin=unit(c(0.2,0.2,0.2,0.2), "cm"), size = 12, color = "black" ))
+
+
+ggsave("../Output/future_met/bar_dif_fut_3.tiff", height = 8, width = 8)
+ggsave("../Output/future_met/bar_dif_fut_3.png", height = 8, width = 8)
+```
+##abstract
+```{r}
+
+abstract_difyield <- 
+### 1. Modify current weather ###
+current_clim  %>% 
+  mutate(ID = str_replace_all(ID, "_", "-")) %>% 
+  filter(year > 2011 & year < 2022) %>% 
+  group_by(SowingDate, Genotype) %>% 
+  summarise(yield_cur = mean(yield_sim),
+            yield_sd_cur = sd(yield_sim)) %>% 
+
+  
+### 2. Join and modify with the Future weather ###
+  left_join(Future_clim %>% 
+     filter(year > 2041 & year <= 2052) %>% 
+
+  group_by(SowingDate, Genotype) %>% 
+        rename("yield_simb" = yield_sim) %>% 
+  summarise(yield_fut = mean(yield_simb),
+            yield_sd_fut = sd(yield_simb))) %>% 
+
+   mutate(SowingDate = as.factor(SowingDate),
+         SowingDate = fct_relevel(SowingDate, 
+                                  "15-apr",  "01-may", 
+                                  "15-may", "01-jun", 
+                                  "15-jun", "01-jul", "15-jul"),
+         Genotype = case_when(Genotype == "Generic_MG3" ~ "MG III",
+                              Genotype == "Generic_MG4" ~ "MG IV",
+                              Genotype == "Generic_MG5" ~ "MG V",
+                              Genotype == "Generic_MG6" ~ "MG VI",
+                              TRUE ~ "NA")) %>%
+  
+  mutate(dif_yield = yield_fut - yield_cur,
+         sd = sd(dif_yield)) %>% 
+ filter(Genotype == "MG VI") %>% 
+
+#############  
+### 3. Plot ###
+  ggplot() +
+  geom_errorbar(mapping=aes(x=SowingDate, 
+                            ymin= yield_fut - yield_sd_fut , 
+                            ymax= yield_fut + yield_sd_fut), 
+                width=0.2, size=0.5, show.legend = F ) + 
+  geom_point(aes(x = SowingDate, y = yield_fut), shape = 21,
+             fill = "grey70", color = "black", size = 3.2, show.legend = F) +
+ 
+
+
+  scale_shape_manual(values = c(0, 15, 21, 19, 17, 6, 18))+
+  
+  geom_col( aes(x = SowingDate, y = dif_yield, fill = SowingDate), color = "black", show.legend = F ) +
+  geom_errorbar(mapping=aes(x=SowingDate, 
+                            ymin= dif_yield - sd , 
+                            ymax= dif_yield + sd), 
+                width=0.2, size=0.5, show.legend = F ) + 
+  geom_hline(aes( yintercept = 0), color = "grey50") +
+
+  scale_fill_viridis(discrete = TRUE, alpha= 0.8, option="A") +
+
+  facet_wrap(~Genotype, nrow= 2, ncol = 2)+
+  labs(y = expression(Yield~(kg~ha^-1)),
+       x = "Sowing date")+
+  scale_y_continuous(limits = c(-4000, 4800), breaks = seq(-3500, 4800, 1500))+
+  
+  theme_bw() +
+  theme(panel.grid = element_blank(),
+        strip.background = element_rect(fill = "#f5f5f5"), 
+        strip.text = element_text(face = "italic", size = 17, hjust = 0.5),
+        text = element_text(size = 15),
+        legend.title = element_text(), legend.position = "right",
+        axis.ticks.length=unit(-0.10, "cm"), 
+        legend.background = element_blank(),
+          axis.title.y = element_text(size = 17),
+          axis.title.x = element_text(size = 17),
+        axis.text.x = element_text(margin=unit(c(0.2,0.2,0.2,0.2), "cm"), 
+                                   size = 14, color = "black" ),
+        axis.text.y = element_text(margin=unit(c(0.2,0.2,0.2,0.2), "cm"), size = 15, color = "black" ))
+
+
+ggsave("../Output/future_met/abstract_difyield.png", height = 8, width = 11)
+ggsave("../Output/future_met/abstract_difyield.pdf", height = 5, width = 7)
+
+
+abstract_difyield
+
+```
+
+
+```{r}
+current_clim  %>% 
+  mutate(ID = str_replace_all(ID, "_", "-")) %>% 
+  filter(year > 2011 & year < 2022) %>% 
+ filter(Genotype == "Generic_MG4"|
+           Genotype == "Generic_MG5"|
+           Genotype == "Generic_MG6") %>% 
+       filter(SowingDate == "15-apr" |
+           SowingDate == "01-may" ) %>% 
+       group_by(Genotype) %>% 
+  summarise(yield_cur = mean(yield_sim),
+            yield_sd_cur = sd(yield_sim)) %>% 
+  mutate(aa = "aa") %>% 
+
+  
+### 2. Join and modify with the Future weather ###
+  left_join(Future_clim %>% 
+     filter(year > 2041 & year <= 2052) %>% 
+       
+       rename("yield_simb" = yield_sim) %>% 
+       filter(Genotype == "Generic_MG4"|
+           Genotype == "Generic_MG5"|
+           Genotype == "Generic_MG6") %>% 
+       filter(SowingDate == "15-apr" |
+           SowingDate == "01-may" ) %>% 
+       group_by(Genotype) %>% 
+       summarise(yield_fut = mean(yield_simb),
+            yield_sd_fut = sd(yield_simb)) %>% 
+       mutate(aa = "aa")) %>%
+  
+  mutate(dif_percentage = 100 - (yield_fut * 100 / yield_cur)) %>% 
+  summarise(dif_percentage = mean(dif_percentage))
+```
+
+
+```{r}
+current_clim  %>% 
+  mutate(ID = str_replace_all(ID, "_", "-")) %>% 
+  filter(year > 2011 & year < 2022) %>% 
+  group_by(cluster, SowingDate) %>% 
+  summarise(yield_cur = mean(yield_sim),
+            yield_sd_cur = sd(yield_sim)) %>% 
+  
+    filter(SowingDate == "15-apr" |
+           SowingDate == "01-may" | 
+           SowingDate == "15-may") %>% 
+  filter(cluster == "South-east") %>% 
+  ungroup(SowingDate) %>% 
+  summarise(yield = mean(yield_cur))
+
+current_clim  %>% 
+  mutate(ID = str_replace_all(ID, "_", "-")) %>% 
+  filter(year > 2011 & year < 2022) %>% 
+  group_by(cluster, SowingDate) %>% 
+  summarise(yield_cur = mean(yield_sim),
+            yield_sd_cur = sd(yield_sim)) %>% 
+  
+    filter(#SowingDate == "15-jun" |
+           SowingDate == "01-jul" | 
+           SowingDate == "15-jul") %>% 
+  filter(cluster == "North-central") %>% 
+  ungroup(SowingDate) %>% 
+  summarise(yield = mean(yield_cur))
+
+```
+```{r}
+Future_clim %>% 
+  filter(year > 2041 & year <= 2052) %>% 
+  rename("yield_simb" = yield_sim) %>% 
+  filter(Genotype == "Generic_MG4"|
+           Genotype == "Generic_MG5"|
+           Genotype == "Generic_MG6") %>% 
+   filter(SowingDate == "15-apr" |
+           SowingDate == "01-may" ) %>% 
+  group_by(Genotype) %>% 
+  summarise(yield_fut = mean(yield_simb),
+            yield_sd_fut = sd(yield_simb))
+```
+
+
+## 2.3. Bar genotype
+```{r}
+current_clim  %>% 
+  group_by(cluster, SowingDate, Genotype) %>% 
+  filter(SowingDate != "15-apr" &
+                         SowingDate != "01-may" ) %>% 
+  summarise(yield = mean(yield_sim),
+            yield_sd = sd(yield_sim)) %>% 
+  
+  left_join(Future_clim %>% 
+     filter(year == 2052) %>% 
+       filter(SowingDate != "15-apr" &
+                         SowingDate != "01-may" ) %>% 
+  group_by(cluster, SowingDate, Genotype) %>% 
+  summarise(yield_fut = mean(yield_sim),
+            yield_sd_fut = sd(yield_sim)) ) %>% 
+  mutate(dif_yield = yield_fut - yield) %>% 
+  
+  mutate(date = paste0(SowingDate, "-", substr(2022, 3,4)),
+         #date = str_replace_all(date, "-", "/"),
+         date1 = format(strptime(date, format = "%d-%b-%y")),
+         DOY = yday(date1))  %>% 
+   mutate(SowingDate = as.factor(SowingDate),
+         SowingDate = fct_relevel(SowingDate, 
+                                  "15-apr",  "01-may", 
+                                  "15-may", "01-jun", 
+                                  "15-jun", "01-jul", "15-jul")) %>% 
+  
+  ### ggplot ###
+  ggplot(aes(x = Genotype, y = dif_yield, fill = Genotype)) +
+  geom_col(color = "black") +
+  geom_hline(aes( yintercept = 0), color = "grey50") +
+  
+  #scale_fill_manual(values = c("#4A586E", "#EEDC7C", "#D8664D", "#748700", "#C1BBB7", "gray10", #"tomato", "black"), aesthetics = "fill") +
+  scale_fill_viridis(discrete = TRUE, alpha=0.6, option="A") +
+  ylim(-3000, 1000)+
+  facet_grid(cluster ~ SowingDate)+
+  ylab("Future yield - Current yield")+
+  xlab( "Sowing date")+
+  labs(fill="Sowing date")+
+  
+  theme_bw() +
+  theme(panel.grid = element_blank(),
+        strip.background = element_rect(fill = "#f5f5f5"), 
+    strip.text = element_text(face = "italic", size = 11, hjust = 0.5),
+        text = element_text(size = 11),
+        legend.title = element_text(), legend.position = "right",
+        axis.ticks.length=unit(-0.10, "cm"), legend.background = element_blank(),
+        axis.text.x = element_text(margin=unit(c(0.1,0.1,0.1,0.1), "cm"), size = 10, angle = 90 ),
+        axis.text.y = element_text(margin=unit(c(0.1,0.1,0.1,0.1), "cm"), size = 10))
+```
+
+
+
+```{r}
+Fut_means_cld.df %>%
+  mutate(PDxMG = as.factor(PDxMG)) %>% 
+   mutate(PDxMG = fct_reorder(PDxMG, emmean)) %>%
+  
+  ggplot( aes(x=PDxMG , y=emmean, label = `.group`)) +
+  geom_bar(aes(fill=Genotype),stat="identity", alpha=.5, width=.6, color = "black") +
+  scale_fill_manual(values = c("#4A586E", "#EEDC7C", "#D8664D", "#748700"), aesthetics = "fill")+
+
+
+  coord_flip() +
+  geom_text(hjust= 1.5, vjust= 0.4, size = 4)+
+
+  
+  xlab("") +
+  facet_wrap(~cluster, scales = "free")+
+  
+  theme_bw() +
+  theme(
+        strip.text = element_text(face = "italic", size = 10, hjust = 0.5),
+        text = element_text(size = 10),
+        legend.title = element_text(), legend.position = "bottom",
+        axis.ticks.length=unit(-0.10, "cm"), legend.background = element_blank(),
+        axis.text.x = element_text(margin=unit(c(0.1,0.1,0.1,0.1), "cm"), size = 10),
+        axis.text.y = element_text(margin=unit(c(0.1,0.1,0.1,0.1), "cm"), size = 10))
+```
+
+
+
+```{r}
+current_clim  %>% 
+  mutate(met = case_when(ID = str_detect(ID, "-Cur-") ~ "Current",
+                         TRUE ~ "Future")) %>% 
+  group_by(cluster, SowingDate, Genotype, met) %>% 
+  summarise(yield = mean(yield_sim),
+            yield_sd = sd(yield_sim)) %>% 
+  mutate(SowMet = paste0(SowingDate, "-", substr(met, 1,3))) %>% 
+  
+  left_join(Future_clim %>% 
+  filter(year == 2052) %>% 
+    mutate(met = case_when(ID = str_detect(ID, "-Fut-") ~ "Future",
+                         TRUE ~ "Current")) %>% 
+  group_by(cluster, SowingDate, Genotype, met) %>% 
+  summarise(yield = mean(yield_sim),
+            yield_sd = sd(yield_sim))) %>% 
+  
+  mutate(SowMet = paste0(SowingDate, "-", substr(met, 1,3)),
+         date = paste0(SowingDate, "-", substr(2022, 3,4)),
+         #date = str_replace_all(date, "-", "/"),
+         date1 = format(strptime(date, format = "%d-%b-%y")),
+         DOY = yday(date1))  %>% 
+  # mutate(SowingDate = as.factor(SowingDate),
+      #   SowingDate = fct_relevel(SowingDate, 
+      #                            "15-apr",  "01-may", 
+      #                            "15-may", "01-jun", 
+       #                           "15-jun", "01-jul", "15-jul")) %>% 
+ggplot(aes(yield, color=SowMet)) + 
+       stat_ecdf(geom = "step", size=1) + 
+      # labs(x="Sepal Width", y="%") +
+       scale_y_continuous(breaks=seq(0,1,0.1), labels = seq(0,100,10)) + 
+       #scale_color_manual(values=c("#96ceb4", "#ff6f69", "#ffcc5c")) + 
+  facet_grid(~cluster ~ Genotype)+
+  theme_bw() +
+  theme(panel.grid = element_blank(),
+        strip.background = element_rect(fill = "#f5f5f5"), strip.text = element_text(face = "italic", size = 11, hjust = 0.1),
+        text = element_text(size = 11),
+        legend.title = element_text(), legend.position = "bottom",
+        axis.ticks.length=unit(-0.10, "cm"), legend.background = element_blank(),
+        axis.text.x = element_text(margin=unit(c(0.5,0.5,0.5,0.5), "cm"), size = 10),
+        axis.text.y = element_text(margin=unit(c(0.5,0.5,0.5,0.5), "cm"), size = 10))
+
+```
+
+## 2.4. Violin
+```{r}
+### labels positions ###
+Fut_means_cld.df <- Fut_means_cld.df %>% 
+  mutate(`.group` = str_replace_all(`.group`, "[[:space:]]", ""))
+
+positions_fut <- Future_clim %>% 
+  filter(year == 2052) %>% 
+   mutate(SowingDate = as.factor(SowingDate),
+         SowingDate = fct_relevel(SowingDate, 
+                                  "15-apr",  "01-may", 
+                                  "15-may", "01-jun", 
+                                  "15-jun", "01-jul", "15-jul")) %>% 
+  mutate(Genotype = as.factor(Genotype)) %>% 
+  
+  group_by(SowingDate, Genotype, cluster) %>% 
+  summarise(ypos = max(yield_sim , na.rm = TRUE) + 900) %>% 
+  ungroup() %>% 
+  left_join(Future_clim %>% 
+  filter(year == 2052 & site == "Riley" |
+           year == 2052 & site == "Kiro" |
+           year == 2052 & site == "Parsons" ) %>% 
+
+   mutate(SowingDate = as.factor(SowingDate),
+          SowingDate = fct_relevel(SowingDate,  "15-apr",  "01-may",  "15-may", "01-jun", 
+                                  "15-jun", "01-jul", "15-jul")) %>% 
+  mutate(Genotype = as.factor(Genotype)) %>% 
+  left_join(Fut_means_cld.df %>% 
+              dplyr::select(cluster, SowingDate, Genotype, `.group`) , 
+            by= c("cluster", "SowingDate", "Genotype") ) )
+
+
+### plot ###
+future_yield <- Future_clim %>% 
+  filter(year == 2052) %>% 
+   mutate(SowingDate = as.factor(SowingDate),
+         SowingDate = fct_relevel(SowingDate, 
+                                  "15-apr",  "01-may", 
+                                  "15-may", "01-jun", 
+                                  "15-jun", "01-jul", "15-jul")) %>% 
+  mutate(Genotype = as.factor(Genotype)) %>% 
+
+ left_join(Future_clim %>% 
+  filter(year == 2052 & site == "Riley" |
+           year == 2052 & site == "Kiro" |
+           year == 2052 & site == "Parsons" ) %>% 
+
+   mutate(SowingDate = as.factor(SowingDate),
+         SowingDate = fct_relevel(SowingDate, 
+                                  "15-apr",  "01-may", 
+                                  "15-may", "01-jun", 
+                                  "15-jun", "01-jul", "15-jul")) %>% 
+    filter(year == 2052) %>% 
+  mutate(Genotype = as.factor(Genotype)) %>% 
+  left_join(Fut_means_cld.df, by= c("cluster", "SowingDate", "Genotype") ) ) %>% 
+
+  
+  ggplot(aes(x=Genotype, y=yield_sim, fill=Genotype)) +
+  geom_violin() +
+
+  scale_fill_viridis(discrete = TRUE, alpha=0.6, option="A") +
+  geom_text(aes(label = `.group`, y = ypos ), 
+            size = 4,
+            angle = 90,
+            stat = "identity", position = "identity",
+           hjust = 0.5,
+           check_overlap = TRUE,
+           data = positions_fut) +
+
+ facet_grid(cluster~SowingDate, scales = "free") +
+ # facet_wrap(~cluster, ncol = 1, nrow = 3)+
+  ylim(0, 8000)+
+
+  ylab(expression(`Simulated grain yield`~(kg~ha ^-1)) )+
+  xlab("Sowing date")+
+
+  theme_bw() +
+  theme(panel.grid = element_blank(),
+        strip.background = element_rect(fill = "#f5f5f5"), 
+    strip.text = element_text(face = "italic", size = 11, hjust = 0.5),
+        text = element_text(size = 11),
+        legend.title = element_text(), legend.position = "right",
+        axis.ticks.length=unit(-0.10, "cm"), legend.background = element_blank(),
+        axis.text.x = element_blank(),
+        axis.text.y = element_text(margin=unit(c(0.1,0.1,0.1,0.1), "cm"), size = 11))
+
+
+ggsave("../Output/future_met/future_yield.tiff", height = 7, width = 10)
+
+```
+
+
+## 2.5. Frequency plot
+```{r}
+## future vs current ##
+current_clim %>% 
+  mutate(ID = str_replace_all(ID, "_", "-")) %>% 
+  bind_rows(Future_clim) %>% 
+  mutate(time = case_when(ID = str_detect(ID, "-Cur-") ~ "Current",
+                         TRUE ~ "Future")) %>% 
+  mutate(SowingDate = as.factor(SowingDate),
+         SowingDate = fct_relevel(SowingDate, 
+                                  "15-apr",  "01-may", 
+                                  "15-may", "01-jun", 
+                                  "15-jun", "01-jul", "15-jul"),
+          SowTime = paste0(SowingDate, "-", substr(time, 1,3))) %>% 
+ # filter(SowingDate == "01-may"|
+ #          SowingDate == "15-may"|
+ #          SowingDate == "01-jun") %>% 
+
+  
+ggplot(aes(yield_sim, color=SowingDate, alpha = time)) + 
+  stat_ecdf(geom = "step", size=1) + 
+  labs(x="Yield", y="Frequency") +
+  scale_y_continuous(breaks=seq(0,1,0.1), labels = seq(0,100,10)) + 
+  #scale_color_manual(values=c("#96ceb4", "#ff6f69", "#ffcc5c")) + 
+  scale_alpha_manual(values = c(0.3, 1))+
+  scale_color_viridis(alpha = 1,
+  begin = 0,
+  end = 1,
+  direction = 1,
+  discrete = TRUE,
+  option = "A")+
+  facet_grid(cluster ~ Genotype)+
+  theme_bw() +
+  theme(panel.grid = element_blank(),
+        strip.background = element_rect(fill = "#f5f5f5"), strip.text = element_text(face = "italic", size = 11, hjust = 0.1),
+        text = element_text(size = 11),
+        legend.title = element_text(), legend.position = "bottom",
+        axis.ticks.length=unit(-0.10, "cm"), legend.background = element_blank(),
+        axis.text.x = element_text(margin=unit(c(0.5,0.5,0.5,0.5), "cm"), size = 10),
+        axis.text.y = element_text(margin=unit(c(0.5,0.5,0.5,0.5), "cm"), size = 10))
+
+
+## current ##
+freq_current <- current_clim %>% 
+  mutate(ID = str_replace_all(ID, "_", "-")) %>% 
+  bind_rows(Future_clim) %>% 
+  mutate(time = case_when(ID = str_detect(ID, "-Cur-") ~ "Current",
+                         TRUE ~ "Future")) %>% 
+  mutate(SowingDate = as.factor(SowingDate),
+         SowingDate = fct_relevel(SowingDate, 
+                                  "15-apr",  "01-may", 
+                                  "15-may", "01-jun", 
+                                  "15-jun", "01-jul", "15-jul"),
+          SowTime = paste0(SowingDate, "-", substr(time, 1,3))) %>% 
+
+  filter(time == "Current") %>% 
+
+  
+ggplot(aes(yield_sim, color=SowingDate)) + 
+  stat_ecdf(geom = "step", size=1) + 
+  labs(x = expression(`Yield`~(kg~ha ^-1)), 
+       y = "Frequency")+
+  scale_y_continuous(breaks=seq(0,1,0.1), labels = seq(0,100,10)) + 
+  #scale_color_manual(values=c("#96ceb4", "#ff6f69", "#ffcc5c")) + 
+ # scale_alpha_manual(values = c(0.3, 1))+
+  scale_color_viridis(alpha = 1,
+  begin = 0,
+  end = 1,
+  direction = 1,
+  discrete = TRUE,
+  option = "magma")+
+  facet_grid(cluster ~ Genotype)+
+  theme_bw() +
+  theme(panel.grid = element_blank(),
+        strip.background = element_rect(fill = "#f5f5f5"), strip.text = element_text(face = "italic", size = 11, hjust = 0.1),
+        text = element_text(size = 11),
+        legend.title = element_text(), legend.position = "bottom",
+        axis.ticks.length=unit(-0.10, "cm"), legend.background = element_blank(),
+        axis.text.x = element_text(margin=unit(c(0.2,0.2,0.2,0.2), "cm"), size = 10),
+        axis.text.y = element_text(margin=unit(c(0.2,0.2,0.2,0.2), "cm"), size = 10))
+
+ggsave("../Output/current_met/freq_current.tiff", height = 6, width = 7)
+```
+
+##2.6. Point
+```{r}
+GP_comp #<- 
+
+current_clim %>% 
+  mutate(ID = str_replace_all(ID, "_", "-")) %>% 
+  group_by(cluster, Genotype, SowingDate) %>% 
+  summarise(yield = mean(yield_sim),
+            yield_sd = sd(yield_sim)) %>% 
+  mutate(time = "Current") %>% 
+  ungroup() %>% 
+  
+## bind with future weather ##
+  bind_rows(Future_clim %>% 
+              filter(year == 2052) %>% 
+              group_by(cluster, Genotype, SowingDate) %>% 
+              summarise(yield = mean(yield_sim),
+                        yield_sd = sd(yield_sim)) %>% 
+                mutate(time = "Future") %>% 
+              ungroup()) %>% 
+  
+
+  mutate(SowingDate = as.factor(SowingDate),
+         SowingDate = fct_relevel(SowingDate, 
+                                  "15-apr",  "01-may", 
+                                  "15-may", "01-jun", 
+                                  "15-jun", "01-jul", "15-jul"),
+          SowTime = paste0(SowingDate, "-", substr(time, 1,3))) %>% 
+  
+## plot ##  
+  ggplot()+
+ # geom_errorbar(mapping=aes(x=SowingDate, 
+ #                           ymin= yield - yield_sd , 
+ #                           ymax= yield + yield_sd,
+ #                           color= time ), 
+ #               width=0.2, size=0.5, show.legend = F ) + 
+  geom_point(aes(x = SowingDate, y = yield, group = time, fill = time), 
+             alpha = 0.6, shape = 21, size = 2.5)+
+  labs( fill = "Weather"  ,
+       x = "Sowing date", 
+       y = expression(`Yield`~(kg~ha ^-1)))+
+
+
+  scale_fill_manual(values = c("#EEDC7C", "#9A76B3"), aesthetics = c("fill", "color"))+
+ 
+  facet_grid(cluster ~ Genotype)+
+  theme_bw() +
+  theme(panel.grid = element_blank(),
+        strip.background = element_rect(fill = "#f5f5f5"), strip.text = element_text(face = "italic", size = 11, hjust = 0.1),
+        text = element_text(size = 11),
+        legend.title = element_text(), legend.position = "bottom",
+        axis.ticks.length=unit(-0.10, "cm"), legend.background = element_blank(),
+        axis.text.x = element_text(margin=unit(c(0.2,0.2,0.2,0.2), "cm"), angle = 90, size = 10),
+        axis.text.y = element_text(margin=unit(c(0.2,0.2,0.2,0.2), "cm"), size = 10))
+
+ggsave("../Output/future_met/GP_comp.tiff", height = 6, width = 8)
+```
+
+##2.7.  Heat plot
+```{r}
+Future_clim %>% 
+  group_by(cluster, Genotype, SowingDate) %>% 
+  summarise(yield = mean(yield_sim),
+            yield_sd = sd(yield_sim)) %>% 
+  mutate(SowingDate = as.factor(SowingDate),
+         SowingDate = fct_relevel(SowingDate, 
+                                  "15-apr",  "01-may", 
+                                  "15-may", "01-jun", 
+                                  "15-jun", "01-jul", "15-jul"),
+         yield_sd = round(yield_sd, digits = 0)) %>% 
+  
+  ggplot(aes(x = SowingDate, y = Genotype, fill = yield))+
+  geom_tile() +
+  scale_fill_viridis(discrete=FALSE,  
+                     alpha=0.8, option="magma",
+                     begin = 1, end = 0, direction = 1) +
+   labs(fill = expression(`Yield`~(kg~ha ^-1))  ,
+       x = "Sowing date", 
+       y = "Genotype")+
+  
+  facet_wrap(~cluster, nrow = 3)+
+  theme_bw()+
+    theme(panel.grid = element_blank(),
+    strip.text = element_text(face = "italic", size = 10, hjust = 0.5),
+        text = element_text(size = 11),
+        legend.title = element_text(), legend.position = "right",
+        axis.title.y = element_text(size = 11),
+        axis.ticks.length= unit(-0.10, "cm"), legend.background = element_blank(),
+        axis.text.x = element_text(margin=unit(c(0.1,0.1,0.1,0.1), "cm"), size = 11),
+        axis.text.y = element_text(margin=unit(c(0.1,0.1,0.1,0.1), "cm"), size = 11))
+
+
+
+
+
+Future_clim %>% 
+
+  group_by(cluster, Genotype, SowingDate) %>% 
+  summarise(yield = mean(yield_sim),
+            yield_sd = sd(yield_sim)) %>% 
+  mutate(SowingDate = as.factor(SowingDate),
+         SowingDate = fct_relevel(SowingDate, 
+                                  "15-apr",  "01-may", 
+                                  "15-may", "01-jun", 
+                                  "15-jun", "01-jul", "15-jul")) %>% 
+
+  ggplot(aes(SowingDate, Genotype,fill = yield, size = yield_sd )) + 
+  geom_point(shape =21)+
+  
+  scale_fill_viridis(discrete=FALSE,  
+                     alpha=0.8, option="magma",
+                     begin = 1, end = 0, direction = 1) +
+  scale_size_continuous(range = c(3,15))+
+  
+  labs(fill = expression(`Yield`~(kg~ha ^-1)) ,
+       size = "Standard desviation",
+       x = "Sowing date", 
+       y = "Genotype")+
+  facet_wrap(~cluster, nrow = 3)+
+  theme_bw()+
+  theme(panel.grid = element_blank(),
+    strip.text = element_text(face = "italic", size = 10, hjust = 0.5),
+        text = element_text(size = 11),
+        legend.title = element_text(), legend.position = "right",
+        axis.title.y = element_text(size = 11),
+        axis.ticks.length= unit(-0.10, "cm"), legend.background = element_blank(),
+        axis.text.x = element_text(margin=unit(c(0.1,0.1,0.1,0.1), "cm"), size = 11),
+        axis.text.y = element_text(margin=unit(c(0.1,0.1,0.1,0.1), "cm"), size = 11))
+```
+
+
+## 2.8. yield years
+```{r}
+## regions ##
+Future_clim %>% 
+  mutate(SowingDate = as.factor(SowingDate),
+         SowingDate = fct_relevel(SowingDate, 
+                                  "15-apr",  "01-may", 
+                                  "15-may", "01-jun", 
+                                  "15-jun", "01-jul", "15-jul")) %>% 
+  group_by(cluster, SowingDate, year) %>% 
+  summarise(yield_sim = mean(yield_sim)) %>% 
+  filter(year < 2053) %>% 
+  
+  ggplot(aes(x= year, y = yield_sim)) +
+  geom_point(aes(fill = SowingDate), shape = 21, size = 2)+
+  scale_fill_viridis(discrete = TRUE, alpha=0.6, option="A") +
+  
+  labs(y = expre)
+  ylim(2000, 5000)+
+  facet_wrap(~cluster, nrow = 3)+
+   
+  theme_bw()+
+  theme(panel.grid = element_blank(),
+    strip.text = element_text(face = "italic", size = 10, hjust = 0.5),
+        text = element_text(size = 11),
+        legend.title = element_text(), legend.position = "right",
+        axis.title.y = element_text(size = 11),
+        axis.ticks.length= unit(-0.10, "cm"), legend.background = element_blank(),
+        axis.text.x = element_text(margin=unit(c(0.1,0.1,0.1,0.1), "cm"), size = 11),
+        axis.text.y = element_text(margin=unit(c(0.1,0.1,0.1,0.1), "cm"), size = 11))
+  
+  
+  ## ALL ##
+years_yield <- Future_clim %>% 
+  mutate(SowingDate = as.factor(SowingDate),
+         SowingDate = fct_relevel(SowingDate, 
+                                  "15-apr",  "01-may", 
+                                  "15-may", "01-jun", 
+                                  "15-jun", "01-jul", "15-jul")) %>% 
+  group_by(year, Genotype, cluster, SowingDate) %>% 
+  summarise(yield = mean(yield_sim),
+            yield_sd = mean(yield_sim)) %>% 
+  filter(year < 2053) %>% 
+  
+  ggplot(aes(x= year, y = yield, group = cluster)) +
+  geom_point(color = "#58595B", alpha = 0.7, size = 1, shape =19, show.legend = F)+
+  geom_smooth(aes(color = cluster), size = 2)+
+  
+  scale_color_manual(values = c("#51127c", "#b73779", "#fcfdbf"), aesthetics = "color")+
+
+  labs(y = expression(Yield~(kg~ha^-1)),
+       x = "Year",
+       color = "Region") +
+  
+  scale_x_continuous(limits = c(2022, 2052), breaks = seq(2022, 2052, by = 5))+
+  ylim(1000, 5000)+
+  facet_wrap(~cluster)+
+  theme_bw()+
+  theme(panel.grid = element_blank(),
+    strip.text = element_text(face = "italic", size = 13, hjust = 0.5),
+        text = element_text(size = 14),
+        legend.title = element_text(), legend.position = "bottom",
+    legend.text = element_text(size = 13),
+        axis.title.y = element_text(size = 13),
+        axis.ticks.length= unit(-0.10, "cm"), legend.background = element_blank(),
+        axis.text.x = element_text(margin=unit(c(0.1,0.1,0.1,0.1), "cm"), size = 12),
+        axis.text.y = element_text(margin=unit(c(0.1,0.1,0.1,0.1), "cm"), size = 13))
+
+years_yield
+
+ggsave("../Output/future_met/years_yield.tiff", height = 5, width = 12)
+```
+```{r}
+Future_clim %>% 
+  mutate(SowingDate = as.factor(SowingDate),
+         SowingDate = fct_relevel(SowingDate, 
+                                  "15-apr",  "01-may", 
+                                  "15-may", "01-jun", 
+                                  "15-jun", "01-jul", "15-jul")) %>% 
+  group_by(cluster, year) %>%
+  mutate(year = as.numeric(year)) %>% 
+  filter(year == 2022 |
+           year == 2052) %>% 
+  summarise(yield_sim = mean(yield_sim))
+
+```
+
+## 2.9. Frequency C-F
+```{r}
+sim_clim #<- 
+current_clim %>% 
+  mutate(ID = str_replace_all(ID, "_", "-")) %>% 
+  bind_rows(Future_clim %>%  filter(year == 2052)) %>% 
+  mutate(met = case_when(ID = str_detect(ID, "-Cur-") ~ "Current",
+                         TRUE ~ "Future")) %>% 
+   mutate(SowingDate = as.factor(SowingDate),
+         SowingDate = fct_relevel(SowingDate, 
+                                  "15-apr",  "01-may", 
+                                  "15-may", "01-jun", 
+                                  "15-jun", "01-jul", "15-jul"), 
+         bestcomb = case_when(cluster == "North-central" &  met == "Current" & 
+                                SowingDate == "15-apr" & Genotype == "Generic_MG4" ~ "best",
+                            #  cluster == "North-central" & met == "Current" & 
+                            #    SowingDate == "01-may" & Genotype == "Generic_MG4" ~ "best",
+                            #  cluster == "North-central" & met == "Current" & 
+                            #  SowingDate == "15-may" & Genotype == "Generic_MG4" ~ "best",
+                              
+                              
+                              cluster == "North-east" & met == "Current" & 
+                              SowingDate == "15-apr" & Genotype == "Generic_MG4" ~ "best", 
+                             # cluster == "North-east" & met == "Current" & 
+                             # SowingDate == "01-may" & Genotype == "Generic_MG4" ~ "best",
+                             # cluster == "North-east" & met == "Current" & 
+                             # SowingDate == "15-may" & Genotype == "Generic_MG4" ~ "best",
+                              
+                              
+                              cluster == "South-east" & met == "Current" & 
+                              SowingDate == "15-apr" & Genotype == "Generic_MG5" ~ "best",
+                            #  cluster == "South-east" & met == "Current" & 
+                            #  SowingDate == "15-apr" & Genotype == "Generic_MG6" ~ "best",
+                            #  cluster == "South-east" & met == "Current" & 
+                            #  SowingDate == "15-apr" & Genotype == "Generic_MG4" ~ "best",
+                              
+                              
+                              ## future ## 
+                              cluster == "North-central" &  met == "Future" & 
+                                SowingDate == "15-apr" & Genotype == "Generic_MG3" ~ "best",
+                             # cluster == "North-central" &  met == "Future" & 
+                             #   SowingDate == "01-may" & Genotype == "Generic_MG3" ~ "best",
+                             # cluster == "North-central" &  met == "Future" & 
+                             #   SowingDate == "01-may" & Genotype == "Generic_MG4" ~ "best",
+                              
+                              
+                              cluster == "North-east" &  met == "Future" & 
+                                SowingDate == "15-apr" & Genotype == "Generic_MG5" ~ "best",
+                             # cluster == "North-east" &  met == "Future" & 
+                             #   SowingDate == "15-apr" & Genotype == "Generic_MG6" ~ "best",
+                             # cluster == "North-east" &  met == "Future" & 
+                             #   SowingDate == "15-may" & Genotype == "Generic_MG5" ~ "best",
+                             # 
+                              
+                              cluster == "South-east" &  met == "Future" & 
+                                SowingDate == "15-apr" & Genotype == "Generic_MG3" ~ "best",
+                             # cluster == "South-east" &  met == "Future" & 
+                             #   SowingDate == "01-may" & Genotype == "Generic_MG6" ~ "best",
+                             # cluster == "North-central" &  met == "Future" & 
+                             #   SowingDate == "01-may" & Genotype == "Generic_MG4" ~ "best",
+                              
+                              TRUE ~ "other"),
+         SowDate_met = paste0(SowingDate, "-", substr(Genotype, 9,11), "-", met)) %>% 
+  #filter(bestcomb == "best")
+
+
+  
+ggplot(aes(yield_sim, color=SowDate_met, alpha = bestcomb)) + 
+  stat_ecdf(geom = "step", size=1) + 
+  labs(x="Yield", y="Frequency") +
+  scale_y_continuous(breaks=seq(0,1,0.1), labels = seq(0,100,10)) + 
+  #scale_color_manual(values=c("#96ceb4", "#ff6f69", "#ffcc5c")) + 
+  scale_alpha_manual(values = c( 1, 0.1))+
+ # scale_color_viridis(alpha = 1,
+ #                     begin = 0,
+ #                     end = 1,
+ #                     direction = 1,
+ #                     discrete = TRUE,
+ #                     option = "A")+
+  facet_wrap(~cluster, nrow = 3)+
+  theme_bw() +
+  theme(panel.grid = element_blank(),
+        strip.background = element_rect(fill = "#f5f5f5"), 
+        strip.text = element_text(face = "italic", size = 11, hjust = 0.1),
+        text = element_text(size = 11),
+        legend.title = element_text(), legend.position = "right",
+        axis.ticks.length=unit(-0.10, "cm"), legend.background = element_blank(),
+        axis.text.x = element_text(margin=unit(c(0.5,0.5,0.5,0.5), "cm"), size = 10),
+        axis.text.y = element_text(margin=unit(c(0.5,0.5,0.5,0.5), "cm"), size = 10))
+```
+#-------------------------
+# *DECADES*
+# 3. Current 2012-2021
+##3.1. Lmer
+```{r}
+### Cluster 1 ###
+cl1_11_21 <- lmer(yield_sim ~ SowingDate*Genotype + (1|site), 
+              data = current_clim %>%
+                filter(cluster == "North-central") %>% 
+                filter(year > 2011 & year < 2022))
+
+car::Anova(cl1_11_21, type = 3)
+options('contrasts')
+options(contrasts = c("contr.sum", "contr.poly")) # set the contrasts
+options('contrasts')
+
+m1_means11_21 <- emmeans::emmeans(cl1_11_21, specs = pairwise~ SowingDate:Genotype) 
+
+m1_means11_21_cld <- cld(m1_means11_21,
+    adjust = "tukey",
+    Letters = letters,
+    reversed = TRUE,
+    comparisons = TRUE)
+
+m1_means_cld.df11_21 <- m1_means11_21_cld %>% as.data.frame() %>% 
+  mutate(PDxMG = paste0(SowingDate, "_", substr(Genotype, 9, 11 )),
+         cluster = "North-central")
+
+### Cluster 3 ###
+cl3_11_21 <- lmer(yield_sim ~ SowingDate*Genotype + (1|site), 
+              data = current_clim %>% 
+                filter(cluster == "South-east") %>% 
+                filter(year > 2011 & year < 2022))
+
+car::Anova(cl3_11_21, type = 3)
+
+options('contrasts')
+options(contrasts = c("contr.sum", "contr.poly")) # set the contrasts
+options('contrasts')
+
+m3_means11_21 <- emmeans::emmeans(cl3_11_21, specs = pairwise~ SowingDate:Genotype) 
+
+m3_means_11_21_cld <- cld(m3_means11_21,
+    adjust = "none",
+    Letters = letters,
+    reversed = TRUE,
+    comparisons = TRUE)
+
+m3_means_cld.df11_21 <- m3_means_11_21_cld %>% as.data.frame() %>% 
+  mutate(PDxMG = paste0(SowingDate, "_", substr(Genotype, 9, 11 )),
+         cluster = "South-east")
+
+### Cluster 2 ###
+cl2_11_21 <- lmer(yield_sim ~ SowingDate*Genotype + (1|site), 
+              data = current_clim %>% 
+                filter(cluster == "North-east")  %>% 
+                filter(year > 2011 & year < 2022))
+
+car::Anova(cl2_11_21, type = 3)
+
+options('contrasts')
+options(contrasts = c("contr.sum", "contr.poly")) # set the contrasts
+options('contrasts')
+
+m2_means11_21 <- emmeans::emmeans(cl2_11_21, specs = pairwise~ SowingDate:Genotype) 
+
+m2_means_11_21_cld <- cld(m2_means11_21,
+    adjust = "tukey",
+    Letters = letters,
+    reversed = TRUE,
+    comparisons = TRUE)
+
+m2_means_cld.df11_21 <- m2_means_11_21_cld %>% as.data.frame() %>% 
+  mutate(PDxMG = paste0(SowingDate, "_", substr(Genotype, 9, 11 )),
+         cluster = "North-east")
+
+means_cld.df11_21 <- m1_means_cld.df11_21 %>% 
+  bind_rows(m2_means_cld.df11_21) %>% 
+  bind_rows(m3_means_cld.df11_21) %>% 
+  mutate(SowingDate = as.factor(SowingDate),
+         SowingDate = fct_relevel(SowingDate, 
+                                  "15-apr",  "01-may", 
+                                  "15-may", "01-jun", 
+                                  "15-jun", "01-jul", "15-jul"))
+
+write.csv(m3_means_cld.df11_21, "../Data/excel/m3_means_cld.df11_21.csv")
+
+```
+
+# 4. Future 2022-2031
+## 4.1. Lmer
+```{r}
+### Cluster 1 ###
+remove(Fut_m1_means_cld22_32)
+Future_cl1_22_32 <- lmer(yield_sim ~ SowingDate*Genotype + (1|site), 
+                     data = Future_clim %>% 
+                       filter(cluster == "North-central") %>% 
+                filter(year > 2021 & year < 2032) )
+
+car::Anova(Future_cl1_22_32, type = 3)
+options('contrasts')
+options(contrasts = c("contr.sum", "contr.poly")) # set the contrasts
+options('contrasts')
+
+Fut_m1_means22_32 <- emmeans::emmeans(Future_cl1_22_32, specs = pairwise~ SowingDate:Genotype) 
+
+Fut_m1_means_cld22_32 <- cld(Fut_m1_means22_32,
+    adjust = "none",
+    Letters = letters,
+    reversed = TRUE,
+    comparisons = TRUE)
+
+Fut_m1_means_cld.df22_23 <- Fut_m1_means_cld22_32 %>% as.data.frame() %>% 
+  mutate(PDxMG = paste0(SowingDate, "_", substr(Genotype, 9, 11 )),
+         cluster = "North-central")
+
+### Cluster 2 ###
+Future_cl2_22_32 <- lmer(yield_sim ~ SowingDate*Genotype + (1|site),
+                     data = Future_clim %>% 
+                       filter(cluster == "North-east" ) %>% 
+                filter(year > 2021 & year < 2032))
+
+car::Anova(Future_cl2_22_32, type = 3)
+options('contrasts')
+options(contrasts = c("contr.sum", "contr.poly")) # set the contrasts
+options('contrasts')
+
+Fut_m2_means22_32 <- emmeans::emmeans(Future_cl2_22_32, specs = pairwise~ SowingDate:Genotype) 
+
+Fut_m2_means_cld22_32 <- cld(Fut_m2_means22_32,
+    adjust = "none",
+    Letters = letters,
+    reversed = TRUE,
+    comparisons = TRUE)
+
+Fut_m2_means_cld.df22_32 <- Fut_m2_means_cld22_32 %>% as.data.frame() %>% 
+  mutate(PDxMG = paste0(SowingDate, "_", substr(Genotype, 9, 11 )),
+         cluster = "North-east")
+
+
+
+### Cluster 3 ###
+Future_cl3_22_32 <- lmer(yield_sim ~ SowingDate*Genotype + (1|site),
+                     data = Future_clim %>% 
+                       filter(cluster == "South-east" ) %>% 
+                filter(year > 2021 & year < 2032))
+
+car::Anova(Future_cl3_22_32, type = 3)
+
+options('contrasts')
+options(contrasts = c("contr.sum", "contr.poly")) # set the contrasts
+options('contrasts')
+
+Fut_m3_means22_32 <- emmeans::emmeans(Future_cl3_22_32, specs = pairwise~ SowingDate:Genotype) 
+
+Fut_m3_means_cld22_32 <- cld(Fut_m3_means22_32,
+    adjust = "none",
+    Letters = letters,
+    reversed = TRUE,
+    comparisons = TRUE)
+
+Fut_m3_means_cld.df22_32 <- Fut_m3_means_cld22_32 %>% as.data.frame() %>% 
+  mutate(PDxMG = paste0(SowingDate, "_", substr(Genotype, 9, 11 )),
+         cluster = "South-east")
+
+
+Fut_means_cld.df22_32 <- Fut_m1_means_cld.df22_23 %>% 
+  bind_rows(Fut_m2_means_cld.df22_32) %>% 
+  bind_rows(Fut_m3_means_cld.df22_32)
+```
+
+
+# 5. Future 2032-2041
+## 5.1. Lmer
+```{r}
+### Cluster 1 ###
+
+Future_cl1_32_41 <- lmer(yield_sim ~ SowingDate*Genotype + (1|site), 
+                     data = Future_clim %>% 
+                       filter(cluster == "North-central") %>% 
+                filter(year > 2031 & year < 2042) )
+
+car::Anova(Future_cl1_32_41, type = 3)
+options('contrasts')
+options(contrasts = c("contr.sum", "contr.poly")) # set the contrasts
+options('contrasts')
+
+Fut_m1_means32_41 <- emmeans::emmeans(Future_cl1_32_41, specs = pairwise~ SowingDate:Genotype) 
+
+Fut_m1_means_cld32_41 <- cld(Fut_m1_means32_41,
+    adjust = "none",
+    Letters = letters,
+    reversed = TRUE,
+    comparisons = TRUE)
+
+Fut_m1_means_cld.df32_41 <- Fut_m1_means_cld32_41 %>% as.data.frame() %>% 
+  mutate(PDxMG = paste0(SowingDate, "_", substr(Genotype, 9, 11 )),
+         cluster = "North-central")
+
+### Cluster 2 ###
+Future_cl2_32_41 <- lmer(yield_sim ~ SowingDate*Genotype + (1|site),
+                     data = Future_clim %>% 
+                       filter(cluster == "North-east" ) %>% 
+                filter(year > 2031 & year < 2042))
+
+car::Anova(Future_cl2_32_41, type = 3)
+options('contrasts')
+options(contrasts = c("contr.sum", "contr.poly")) # set the contrasts
+options('contrasts')
+
+Fut_m2_means32_41 <- emmeans::emmeans(Future_cl2_32_41, specs = pairwise~ SowingDate:Genotype) 
+
+Fut_m2_means_cld32_41 <- cld(Fut_m2_means32_41,
+    adjust = "none",
+    Letters = letters,
+    reversed = TRUE,
+    comparisons = TRUE)
+
+Fut_m2_means_cld.df32_41 <- Fut_m2_means_cld32_41 %>% as.data.frame() %>% 
+  mutate(PDxMG = paste0(SowingDate, "_", substr(Genotype, 9, 11 )),
+         cluster = "North-east")
+
+
+
+### Cluster 3 ###
+Future_cl3_32_41 <- lmer(yield_sim ~ SowingDate*Genotype + (1|site),
+                     data = Future_clim %>% 
+                       filter(cluster == "South-east" ) %>% 
+                filter(year > 2031 & year < 2042))
+
+car::Anova(Future_cl3_32_41, type = 3)
+
+options('contrasts')
+options(contrasts = c("contr.sum", "contr.poly")) # set the contrasts
+options('contrasts')
+
+Fut_m3_means32_41 <- emmeans::emmeans(Future_cl3_32_41, specs = pairwise~ SowingDate:Genotype) 
+
+Fut_m3_means_cld32_41 <- cld(Fut_m3_means32_41,
+    adjust = "none",
+    Letters = letters,
+    reversed = TRUE,
+    comparisons = TRUE)
+
+Fut_m3_means_cld.df32_41 <- Fut_m3_means_cld32_41 %>% as.data.frame() %>% 
+  mutate(PDxMG = paste0(SowingDate, "_", substr(Genotype, 9, 11 )),
+         cluster = "South-east")
+
+
+Fut_means_cld.df32_41 <- Fut_m1_means_cld.df32_41 %>% 
+  bind_rows(Fut_m2_means_cld.df32_41) %>% 
+  bind_rows(Fut_m3_means_cld.df32_41)
+```
+
+
+# 6. Future 2042-2052
+## 6.1. Lmer
+```{r}
+### Cluster 1 ###
+
+Future_cl1_42_52 <- lmer(yield_sim ~ SowingDate*Genotype + (1|site), 
+                     data = Future_clim %>% 
+                       filter(cluster == "North-central") %>% 
+                filter(year > 2041 & year < 2053) )
+
+car::Anova(Future_cl1_42_52, type = 3)
+options('contrasts')
+options(contrasts = c("contr.sum", "contr.poly")) # set the contrasts
+options('contrasts')
+
+Fut_m1_means42_52 <- emmeans::emmeans(Future_cl1_42_52, specs = pairwise~ SowingDate:Genotype) 
+
+Fut_m1_means_cld42_52 <- cld(Fut_m1_means42_52,
+    adjust = "none",
+    Letters = letters,
+    reversed = TRUE,
+    comparisons = TRUE)
+
+Fut_m1_means_cld.df42_52 <- Fut_m1_means_cld42_52 %>% as.data.frame() %>% 
+  mutate(PDxMG = paste0(SowingDate, "_", substr(Genotype, 9, 11 )),
+         cluster = "North-central")
+
+### Cluster 2 ###
+Future_cl2_42_52 <- lmer(yield_sim ~ SowingDate*Genotype + (1|site),
+                     data = Future_clim %>% 
+                       filter(cluster == "North-east" ) %>% 
+                filter(year > 2041 & year < 2053))
+
+car::Anova(Future_cl2_42_52, type = 3)
+options('contrasts')
+options(contrasts = c("contr.sum", "contr.poly")) # set the contrasts
+options('contrasts')
+
+Fut_m2_means42_52 <- emmeans::emmeans(Future_cl2_42_52, specs = pairwise~ SowingDate:Genotype) 
+
+Fut_m2_means_cld42_52 <- cld(Fut_m2_means42_52,
+    adjust = "none",
+    Letters = letters,
+    reversed = TRUE,
+    comparisons = TRUE)
+
+Fut_m2_means_cld.df42_52 <- Fut_m2_means_cld42_52 %>% as.data.frame() %>% 
+  mutate(PDxMG = paste0(SowingDate, "_", substr(Genotype, 9, 11 )),
+         cluster = "North-east")
+
+
+
+### Cluster 3 ###
+Future_cl3_42_52 <- lmer(yield_sim ~ SowingDate*Genotype + (1|site),
+                     data = Future_clim %>% 
+                       filter(cluster == "South-east" ) %>% 
+                filter(year > 2041 & year < 2053))
+
+car::Anova(Future_cl3_42_52, type = 3)
+
+options('contrasts')
+options(contrasts = c("contr.sum", "contr.poly")) # set the contrasts
+options('contrasts')
+
+Fut_m3_means42_52 <- emmeans::emmeans(Future_cl3_42_52, specs = pairwise~ SowingDate:Genotype) 
+
+
+Fut_m3_means_cld42_52 <- cld(Fut_m3_means42_52,
+    adjust = "none",
+    Letters = letters,
+    reversed = TRUE,
+    comparisons = TRUE)
+
+Fut_m3_means_cld.df42_52 <- Fut_m3_means_cld42_52 %>% as.data.frame() %>% 
+  mutate(PDxMG = paste0(SowingDate, "_", substr(Genotype, 9, 11 )),
+         cluster = "South-east")
+
+
+Fut_means_cld.df42_52 <- Fut_m1_means_cld.df42_52 %>% 
+  bind_rows(Fut_m2_means_cld.df42_52) %>% 
+  bind_rows(Fut_m3_means_cld.df42_52)
+
+write.csv(Fut_means_cld.df42_52, file = "../Data/excel/Fut_means_cld.df42_52.csv")
+```
+
+
+#--------------------------
+## 1. Ranking plot
+
+```{r}
+Ranking.df <- 
+means_cld.df11_21 %>% 
+  mutate(year = "2012- 2021", .before=SowingDate) %>% 
+  group_by(cluster) %>% 
+  slice_head(n = 10) %>% 
+  ungroup() %>% 
+
+bind_rows(Fut_means_cld.df22_32 %>% 
+            group_by(cluster) %>% 
+            mutate(year = "2022- 2031", .before=SowingDate) %>% 
+            slice_head(n = 10)) %>%
+  
+  bind_rows(Fut_means_cld.df32_41 %>% 
+              group_by(cluster) %>% 
+              mutate(year = "2032- 2041", .before=SowingDate) %>% 
+              slice_head(n = 10) %>% 
+              ungroup()) %>% 
+  
+  bind_rows(Fut_means_cld.df42_52 %>% 
+              group_by(cluster) %>% 
+              mutate(year = "2042- 2052", .before=SowingDate) %>% 
+              slice_head(n = 10) %>% 
+              ungroup()) %>% 
+  
+  
+  group_by(year, cluster) %>% 
+  mutate(rank = c(1, 2, 3, 4, 5, 6, 7, 8, 9, 10)) %>% 
+  ungroup() %>%  
+   mutate(year = case_when(year == "2012- 2021" ~ 2022,
+                           year == "2022- 2031" ~ 2032,
+                           year == "2032- 2041" ~ 2042, 
+                           year == "2042- 2052" ~ 2052, 
+                           TRUE ~ 9999)) #%>% 
+  filter(year = )
+  
+  
+ Ranking1 <- 
+ Ranking.df  %>% 
+  ### ggplot ###
+  ggplot(aes(x = year, y = reorder(rank, desc(rank)), color = PDxMG, group = PDxMG)) +
+
+  geom_point(aes(shape = Genotype), size = 4, show.legend = F) +
+  facet_wrap(~cluster, nrow = 3)+
+  geom_text(data = Ranking.df %>% filter(year == 2022),
+            aes(x = year - .1, label = PDxMG), size = 4, hjust = 1.2) +
+  geom_text(data = Ranking.df %>% filter(year == 2052),
+            aes(x = year + .1, label = PDxMG), size = 4, hjust = -0.2) +
+  geom_bump(size = 2, smooth = 8) +
+ 
+  scale_x_continuous(limits = c(2020, 2054),
+                     breaks = seq(2022, 2052, 10)) +
+  
+  labs(y = "Ranking",
+       x = "Year") +
+  
+  scale_shape_manual(values=c(19, 15, 17, 18))+
+  scale_color_manual(values= met.brewer("Tiepolo", 21)) +
+  #
+  #theme_minimal_grid(font_size = 12, line_size = 0) +
+  #theme(legend.position = "none",
+  #      panel.grid.major = element_blank()) +
+   theme_bw()+
+   theme(panel.grid = element_blank(),
+        strip.background = element_rect(fill = "#f5f5f5"), 
+        strip.text = element_text(face = "italic", size = 12, hjust = 0.5),
+        text = element_text(size = 12),
+        legend.title = element_text(), 
+        legend.position = "none",
+        axis.ticks.length=unit(-0.10, "cm"), legend.background = element_blank(),
+        axis.text.x = element_text(margin=unit(c(0.5,0.5,0.5,0.5), "cm"), size = 12),
+        axis.text.y = element_text(margin=unit(c(0.5,0.5,0.5,0.5), "cm"), size = 12))
+    
+ggsave("../Output/future_met/Ranking1.tiff", height = 9, width = 14)
+```
+
+## 2. Ranking plot
+```{r}
+Ranking.df2 <- 
+means_cld.df11_21 %>% 
+  mutate(year = "2012- 2021", .before=SowingDate) %>% 
+  group_by(cluster) %>% 
+  slice_head(n = 5) %>% 
+  ungroup() %>% 
+
+bind_rows(Fut_means_cld.df22_32 %>% 
+            group_by(cluster) %>% 
+            mutate(year = "2022- 2031", .before=SowingDate) %>% 
+            slice_head(n = 5)) %>%
+  
+  bind_rows(Fut_means_cld.df32_41 %>% 
+              group_by(cluster) %>% 
+              mutate(year = "2032- 2041", .before=SowingDate) %>% 
+              slice_head(n = 5) %>% 
+              ungroup()) %>% 
+  
+  bind_rows(Fut_means_cld.df42_52 %>% 
+              group_by(cluster) %>% 
+              mutate(year = "2042- 2052", .before=SowingDate) %>% 
+              slice_head(n = 5) %>% 
+              ungroup()) %>% 
+  
+  
+  group_by(year, cluster) %>% 
+  mutate(rank = c(1, 2, 3, 4, 5)) %>% 
+  ungroup() %>%  
+   mutate(year = case_when(year == "2012- 2021" ~ 2022,
+                           year == "2022- 2031" ~ 2032,
+                           year == "2032- 2041" ~ 2042, 
+                           year == "2042- 2052" ~ 2052, 
+                           TRUE ~ 9999),
+          PDxMG = str_replace(PDxMG, "_", " ")) 
+
+Ranking2 <- 
+Ranking.df2  %>% 
+  ### ggplot ###
+  ggplot(aes(x = year, y = reorder(rank, desc(rank)), color = PDxMG, group = PDxMG)) +
+
+  geom_point(aes(shape = PDxMG), size = 6, show.legend = F) +
+  facet_wrap(~cluster, nrow = 3)+
+  geom_text(data = Ranking.df2 %>% filter(year == 2022),
+            aes(x = year - .1, label = PDxMG), size = 4, hjust = 1.2) +
+  geom_text(data = Ranking.df2 %>% filter(year == 2052),
+            aes(x = year + .1, label = PDxMG), size = 4, hjust = -0.2) +
+  geom_bump(size = 1, smooth = 8) +
+ 
+  scale_x_continuous(limits = c(2020, 2054),
+                     breaks = seq(2022, 2052, 10)) +
+  
+  labs(y = "Ranking",
+       x = "Year") +
+  
+  scale_shape_manual(values=c(0, 1, 2, 4, 5, 6, 7, 8, 15, 17, 18, 19, 21, 22, 23, 24, 11))+
+  scale_color_manual(values= met.brewer("Degas", 17)) +
+  #
+  theme_minimal_grid(font_size = 12, line_size = 0) +
+  #theme_bw()+
+  #theme(legend.position = "none",
+  #      panel.grid.major = element_blank()) 
+  # 
+  theme(panel.grid = element_blank(),
+        panel.background = element_rect(fill = "white"),
+        plot.background = element_rect(fill = "white"),
+       strip.background = element_rect(fill = "#f5f5f5"), 
+       strip.text = element_text(face = "italic", size = 12, hjust = 0.5),
+       text = element_text(size = 12),
+       legend.title = element_text(), 
+       legend.position = "none",
+       axis.ticks.length=unit(-0.10, "cm"), legend.background = element_blank(),
+       axis.text.x = element_text(margin=unit(c(0.5,0.5,0.5,0.5), "cm"), size = 12),
+       axis.text.y = element_text(margin=unit(c(0.5,0.5,0.5,0.5), "cm"), size = 12))
+    
+
+ggsave("../Output/future_met/Ranking2.tiff", height = 9, width = 14)
+
+
+current_clim %>% 
+  filter(year > 2011 & year < 2021) %>% 
+  mutate(ID = str_replace_all(ID, "_", "-")) %>% 
+  group_by(cluster, Genotype, SowingDate) %>% 
+  summarise(yield = mean(yield_sim),
+            yield_sd = sd(yield_sim)) %>% 
+  mutate(time = 2021) %>% 
+  ungroup() %>% 
+  
+## bind with future weather ##
+  bind_rows(Future_clim %>% 
+              filter(year > 2021 & year < 2032) %>% 
+              group_by(cluster, Genotype, SowingDate) %>% 
+              summarise(yield = mean(yield_sim),
+                        yield_sd = sd(yield_sim)) %>% 
+                mutate(time = 2031) %>% 
+              ungroup()) %>% 
+  
+   bind_rows(Future_clim %>% 
+              filter(year > 2031 & year < 2042) %>% 
+              group_by(cluster, Genotype, SowingDate) %>% 
+              summarise(yield = mean(yield_sim),
+                        yield_sd = sd(yield_sim)) %>% 
+                mutate(time = 2041) %>% 
+              ungroup()) %>%
+  
+     bind_rows(Future_clim %>% 
+              filter(year > 2041 & year < 2052) %>% 
+              group_by(cluster, Genotype, SowingDate) %>% 
+              summarise(yield = mean(yield_sim),
+                        yield_sd = sd(yield_sim)) %>% 
+                mutate(time = 2052) %>% 
+              ungroup()) %>%
+  
+
+  mutate(SowingDate = as.factor(SowingDate),
+         SowingDate = fct_relevel(SowingDate, 
+                                  "15-apr",  "01-may", 
+                                  "15-may", "01-jun", 
+                                  "15-jun", "01-jul", "15-jul"),
+          SG = paste0(SowingDate, "-", substr(Genotype, 9,11))) %>% 
+ ggplot()+
+ # geom_errorbar(mapping=aes(x=SowingDate, 
+ #                           ymin= yield - yield_sd , 
+ #                           ymax= yield + yield_sd,
+ #                           color= time ), 
+ #               width=0.2, size=0.5, show.legend = F ) + 
+  geom_point(aes(x = SowingDate, y = yield, fill = Genotype), 
+             alpha = 0.6, shape = 21, size = 2.5)+
+  #labs( fill = "Weather"  ,
+  #     x = "Sowing date", 
+  #     y = expression(`Yield`~(kg~ha ^-1)))+
+
+
+  #scale_fill_manual(values = c("#EEDC7C", "#9A76B3"), aesthetics = c("fill", "color"))+
+ 
+  facet_grid(cluster ~ time)+
+  theme_bw() +
+  theme(panel.grid = element_blank(),
+        strip.background = element_rect(fill = "#f5f5f5"), strip.text = element_text(face = "italic", size = 11, hjust = 0.1),
+        text = element_text(size = 11),
+        legend.title = element_text(), legend.position = "bottom",
+        axis.ticks.length=unit(-0.10, "cm"), legend.background = element_blank(),
+        axis.text.x = element_text(margin=unit(c(0.2,0.2,0.2,0.2), "cm"), angle = 90, size = 10),
+        axis.text.y = element_text(margin=unit(c(0.2,0.2,0.2,0.2), "cm"), size = 10))
+```
+
+```{r}
+current_clim %>% 
+  filter(year > 2011 & year < 2021) %>% 
+  mutate(ID = str_replace_all(ID, "_", "-")) %>% 
+  group_by(cluster, Genotype, SowingDate) %>% 
+  summarise(yield = mean(yield_sim),
+         sd = sd(yield_sim)) %>% 
+  mutate(time = 2021) %>% 
+  ungroup() %>% 
+  
+## bind with future weather ##
+
+     bind_rows(Future_clim %>% 
+              filter(year > 2041 & year < 2052) %>% 
+              group_by(cluster, Genotype, SowingDate) %>% 
+              mutate(yield = mean(yield_sim),
+                        sd = sd(yield_sim)) %>% 
+                mutate(time = 2052) %>% 
+              ungroup()) %>%
+  
+
+  mutate(SowingDate = as.factor(SowingDate),
+         SowingDate = fct_relevel(SowingDate, 
+                                  "15-apr",  "01-may", 
+                                  "15-may", "01-jun", 
+                                  "15-jun", "01-jul", "15-jul"),
+          SG = paste0(SowingDate, "-", substr(Genotype, 9,11))) %>% 
+  ggplot(aes(x = yield, y = sd))+
+  geom_point(aes(color = SowingDate, shape = Genotype))+
+ # scale_color_gradient( low = "tomato", high = "steelblue" )+
+  facet_grid(cluster ~ time)+
+  theme_bw() +
+  theme(panel.grid = element_blank(),
+        strip.background = element_rect(fill = "#f5f5f5"), strip.text = element_text(face = "italic", size = 11, hjust = 0.1),
+        text = element_text(size = 11),
+        legend.title = element_text(), legend.position = "bottom",
+        axis.ticks.length=unit(-0.10, "cm"), legend.background = element_blank(),
+        axis.text.x = element_text(margin=unit(c(0.2,0.2,0.2,0.2), "cm"), angle = 90, size = 10),
+        axis.text.y = element_text(margin=unit(c(0.2,0.2,0.2,0.2), "cm"), size = 10))
+
+
+current_clim %>% 
+  filter(year > 2011 & year < 2021) %>% 
+  mutate(ID = str_replace_all(ID, "_", "-")) %>% 
+  
+  group_by(cluster, Genotype, SowingDate) %>% 
+  summarise(yield = mean(yield_sim),
+         sd = sd(yield_sim)) %>% 
+  
+  ungroup(Genotype, SowingDate) %>% 
+  mutate(yield_mean = mean(yield),
+         sd_mean = mean(sd)) %>% 
+  mutate(time = 2021) %>% 
+  ungroup() %>% 
+  
+## bind with future weather ##
+
+     bind_rows(Future_clim %>% 
+              filter(year > 2041 & year < 2052) %>%
+                group_by(cluster, Genotype, SowingDate) %>% 
+                summarise(time = 2052,
+                       yield = mean(yield_sim),
+                       sd = sd(yield_sim)) %>% 
+                ungroup(Genotype, SowingDate) %>% 
+                mutate(yield_mean = mean(yield),
+                       sd_mean = mean(sd)) %>% 
+                ungroup()) %>%
+  
+  group_by(cluster,time, SowingDate, Genotype) %>% 
+  
+
+  mutate(SowingDate = as.factor(SowingDate),
+         SowingDate = fct_relevel(SowingDate, 
+                                  "15-apr",  "01-may", 
+                                  "15-may", "01-jun", 
+                                  "15-jun", "01-jul", "15-jul"),
+          SG = paste0(SowingDate, "-", substr(Genotype, 9,11)),
+         dif_yield = yield - yield_mean,
+         dif_sd = sd - sd_mean,
+
+         time = case_when(time == 2021 ~ "Cur",
+                          TRUE ~ "Fut"),
+         Sowtime = as.factor(paste0(time, "-", SowingDate)),
+         Sowtime1 = fct_relevel(Sowtime, 
+                                  "Cur-15-apr",  "Cur-01-may", 
+                                  "Cur-15-may", "Cur-01-jun", 
+                                  "Cur-15-jun", "Cur-01-jul",  "Cur-15-jul",
+                               
+                               "Fut-15-apr",  "Fut-01-may", 
+                               "Fut-15-may", "Fut-01-jun", 
+                               "Fut-15-jun", "Fut-01-jul", "Fut-15-jul" )) %>% 
+  
+  mutate(yield_p = (dif_yield * 100 )/ yield_mean,
+         sd_p = (dif_sd * 100) /sd_mean) %>% 
+  
+  ### ggplot ###
+  ggplot(aes(x = yield_p, y = sd_p))+
+  geom_point(aes(color = Sowtime1, shape = Genotype), size = 3)+
+
+  
+  scale_color_manual(values = c("#FFECB3", "#FFE082", "#FFD54F", "#FFC107", "#FFA000", "#FF8F00", "#FF6F00",
+                                
+                                "#E1BEE7", "#CE93D8", "#BA68C8", "#9C27B0", "#7B1FA2", "#6A1B9A", "#4A148C"),
+                    aesthetics = "color")+
+  
+
+  geom_vline(xintercept = 0)+
+  geom_hline(yintercept = 0)+
+  labs(y = "Standard desviation",
+       x = "Yield")+
+
+  facet_wrap(~cluster)+
+  theme_bw() +
+  theme(panel.grid = element_blank(),
+        strip.background = element_rect(fill = "#f5f5f5"), 
+        strip.text = element_text(face = "italic", size = 12, hjust = 0.5),
+        text = element_text(size = 12),
+        legend.title = element_text(), legend.position = "bottom",
+        axis.ticks.length=unit(-0.10, "cm"), legend.background = element_blank(),
+        axis.text.x = element_text(margin=unit(c(0.2,0.2,0.2,0.2), "cm"), size = 12),
+        axis.text.y = element_text(margin=unit(c(0.2,0.2,0.2,0.2), "cm"), size = 12))
+
+
+
+
+```
+
+
+## 3. Ranking plot
+```{r}
+Ranking.df3 <- 
+means_cld.df11_21 %>% 
+  mutate(year = "2012- 2021", .before=SowingDate) %>% 
+  group_by(cluster) %>% 
+  slice_head(n = 5) %>% 
+  ungroup() %>% 
+
+bind_rows(Fut_means_cld.df22_32 %>% 
+            group_by(cluster) %>% 
+            mutate(year = "2022- 2031", .before=SowingDate) %>% 
+            slice_head(n = 5)) %>%
+  
+  bind_rows(Fut_means_cld.df32_41 %>% 
+              group_by(cluster) %>% 
+              mutate(year = "2032- 2041", .before=SowingDate) %>% 
+              slice_head(n = 5) %>% 
+              ungroup()) %>% 
+  
+  bind_rows(Fut_means_cld.df42_52 %>% 
+              group_by(cluster) %>% 
+              mutate(year = "2042- 2052", .before=SowingDate) %>% 
+              slice_head(n = 5) %>% 
+              ungroup()) %>% 
+  
+  
+  group_by(year, cluster) %>% 
+  mutate(rank = c(1, 2, 3, 4, 5)) %>% 
+  ungroup() %>%  
+   mutate(year = case_when(year == "2012- 2021" ~ 2022,
+                           year == "2022- 2031" ~ 2032,
+                           year == "2032- 2041" ~ 2042, 
+                           year == "2042- 2052" ~ 2052, 
+                           TRUE ~ 9999)) %>% 
+  filter(year == 2022 |
+           year == 2052)
+  
+  
+
+Ranking2# <- 
+Ranking.df3  %>% 
+  ### ggplot ###
+  ggplot(aes(x = year, y = reorder(rank, desc(rank)), color = PDxMG, group = PDxMG)) +
+
+  geom_point(aes(shape = Genotype), size = 5, show.legend = F) +
+  facet_wrap(~cluster, nrow = 3)+
+  geom_text(data = Ranking.df2 %>% filter(year == 2022),
+            aes(x = year - .1, label = PDxMG), size = 4, hjust = 1.2) +
+  geom_text(data = Ranking.df2 %>% filter(year == 2052),
+            aes(x = year + .1, label = PDxMG), size = 4, hjust = -0.2) +
+  geom_bump(size = 2, smooth = 8) +
+ 
+  scale_x_continuous(limits = c(2020, 2054),
+                     breaks = seq(2022, 2052, 10)) +
+  
+  labs(y = "Ranking",
+       x = "Year") +
+  
+  scale_shape_manual(values=c(19, 15, 17, 18))+
+  scale_color_manual(values= met.brewer("Tiepolo", 17)) +
+  #
+  #theme_minimal_grid(font_size = 12, line_size = 0) +
+  #theme(legend.position = "none",
+  #      panel.grid.major = element_blank()) +
+   theme_bw()+
+   theme(panel.grid = element_blank(),
+        strip.background = element_rect(fill = "#f5f5f5"), 
+        strip.text = element_text(face = "italic", size = 12, hjust = 0.5),
+        text = element_text(size = 12),
+        legend.title = element_text(), 
+        legend.position = "none",
+        axis.ticks.length=unit(-0.10, "cm"), legend.background = element_blank(),
+        axis.text.x = element_text(margin=unit(c(0.5,0.5,0.5,0.5), "cm"), size = 12),
+        axis.text.y = element_text(margin=unit(c(0.5,0.5,0.5,0.5), "cm"), size = 12))
+    
+
+ggsave("../Output/future_met/Ranking2.tiff", height = 9, width = 14)
+```
+
+#--------------------------
+#Flowering
+```{r}
+## dataset ##
+flowering_apsim <- read.csv("../Data/flowering/flowering.csv")
+flowering_usda <- read.csv("../Data/flowering/flowering_USDA.csv")
+```
+```{r}
+flowering <- flowering_apsim %>% 
+  mutate(week = as.Date(Clock.Today), 
+         #week = format(week, format = "%m-%d") , 
+         .before = ID,
+         data = "APSIM simulation",
+         stage = "FLowering") %>% 
+  rename("Year" = year) %>% 
+  dplyr::select(week, data, Year, stage) %>% 
+  filter(Year > 2013 & Year <= 2021) %>% 
+  
+  bind_rows(flowering_usda %>% 
+            mutate( week = mdy(Week.Ending), .before = Year,
+                    data = "NASS-USDA",
+                    #week = format(week, format = "%m-%d"), 
+                    stage = "FLowering") %>% 
+            dplyr::select(week, data, Year, stage) %>% 
+            filter(Year > 2013 & Year <= 2021)) %>% 
+  mutate(DOY = strftime(week, format = "%j" )) %>% 
+  
+  
+### ggplot ###  
+  ggplot( aes(x = as.numeric(DOY), group = data, fill = data))+
+  geom_density(alpha = 0.7, show.legend = T)+
+  scale_fill_manual(values = c("#721f81", "#fcfdbf"), aesthetics = "fill")+
+  labs(x = "Day of the year (DOY)",
+       y = "Density",
+       fill = "Anthesis dataset")+
+  facet_wrap(~Year)+
+  xlim(100, 300)+
+   theme_bw()+
+   theme(panel.grid = element_blank(),
+        strip.background = element_rect(fill = "#f5f5f5"), 
+        strip.text = element_text(face = "italic", size = 12, hjust = 0.5),
+        text = element_text(size = 12),
+        legend.title = element_text(), 
+        legend.position = "right",
+        axis.ticks.length=unit(-0.10, "cm"), legend.background = element_blank(),
+        axis.text.x = element_text(margin=unit(c(0.5,0.5,0.5,0.5), "cm"), size = 12),
+        axis.text.y = element_text(margin=unit(c(0.5,0.5,0.5,0.5), "cm"), size = 12))
+
+
+flowering
+
+ggsave( "../Output/flowering.tiff", height = 7, width= 9)
+
+```
+
+
+```{r}
+flowering_apsim %>% 
+  mutate(week = as.Date(Clock.Today), 
+         #week = format(week, format = "%m-%d") , 
+         .before = ID,
+         data = "APSIM simulation",
+         stage = "FLowering") %>% 
+  rename("Year" = year) %>% 
+  dplyr::select(week, data, Year, stage) %>% 
+  filter(Year > 2013 & Year <= 2021) %>% 
+  
+  bind_rows(flowering_usda %>% 
+            mutate( week = mdy(Week.Ending), .before = Year,
+                    data = "USDA",
+                    #week = format(week, format = "%m-%d"), 
+                    stage = "FLowering") %>% 
+            dplyr::select(week, data, Year, stage) %>% 
+            filter(Year > 2013 & Year <= 2021)) %>% 
+  mutate(DOY = strftime(week, format = "%j" )) %>% 
+  
+  
+### ggplot ###  
+  ggplot( aes(x = as.numeric(DOY), fill = data))+
+  geom_histogram(alpha = 0.6, color = "black")+
+  scale_fill_manual(values = c("#721f81", "#fcfdbf"), aesthetics = "fill")+
+  labs(x = "Day of the year (DOY)",
+       y = "Density",
+       fill = "Anthesis dataset")+
+  facet_wrap(~Year)+
+  #xlim(100, 300)+
+   theme_bw()+
+   theme(panel.grid = element_blank(),
+        strip.background = element_rect(fill = "#f5f5f5"), 
+        strip.text = element_text(face = "italic", size = 12, hjust = 0.5),
+        text = element_text(size = 12),
+        legend.title = element_text(), 
+        legend.position = "right",
+        axis.ticks.length=unit(-0.10, "cm"), legend.background = element_blank(),
+        axis.text.x = element_text(margin=unit(c(0.5,0.5,0.5,0.5), "cm"), size = 12),
+        axis.text.y = element_text(margin=unit(c(0.5,0.5,0.5,0.5), "cm"), size = 12))
+```
+
+#--------------------------
+#Critical period
+```{r}
+c_period <- read.csv("../Data/critical_period_USDA.csv") %>% 
+  mutate( week = mdy(Week.Ending), .before = Year,
+                    data = "NASS-USDA",
+                    #week = format(week, format = "%m-%d"), 
+                    stage = "CP") %>% 
+            dplyr::select(week, data, Year, stage) %>% 
+            filter(Year > 2013 & Year <= 2021) %>% 
+  mutate(DOY = strftime(week, format = "%j" ))
+```
+
+
+```{r}
+cpUSDA_plot <- 
+c_period %>% 
+  ggplot( aes(x = as.numeric(DOY), group = data, fill = data))+
+  geom_density(alpha = 0.7, show.legend = T)+
+  geom_vline(xintercept = 153, linetype = 2)+
+   geom_vline(xintercept = 263, linetype = 2)+
+  geom_text(label = "June 1st", x = 140, y= 0.019, hjust = 0)+
+  geom_text(label = "September 20th", x = 215, y= 0.019, hjust = 0)+
+  ylim(0, 0.020)+
+  scale_fill_manual(values = c("#fcfdbf"), aesthetics = "fill")+
+  labs(x = "Day of the year (DOY)",
+       y = "Density",
+       fill = "Soybean critical period")+
+  facet_wrap(~Year)+
+  xlim(100, 300)+
+   theme_bw()+
+   theme(panel.grid = element_blank(),
+        strip.background = element_rect(fill = "#f5f5f5"), 
+        strip.text = element_text(face = "italic", size = 12, hjust = 0.5),
+        text = element_text(size = 12),
+        legend.title = element_text(), 
+        legend.position = "none",
+        axis.ticks.length=unit(-0.10, "cm"), legend.background = element_blank(),
+        axis.text.x = element_text(margin=unit(c(0.5,0.5,0.5,0.5), "cm"), size = 12),
+        axis.text.y = element_text(margin=unit(c(0.5,0.5,0.5,0.5), "cm"), size = 12))
+
+
+ggsave( "../Output/cpUSDA_plot.tiff", height = 7, width= 9)
+
+```
+
