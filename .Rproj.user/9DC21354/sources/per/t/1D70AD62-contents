@@ -1,0 +1,839 @@
+---
+title: "Data collection & wrangling"
+author: "Emmanuela van Versendaal"
+date: "2/23/2022"
+output: html_document
+---
+
+# Library
+```{r setup, include=FALSE}
+library(tidyverse)
+library(readxl)
+library(lubridate)
+library(apsimx)
+library(NbClust)
+library(data.table)
+library(patchwork)
+library(gridExtra)
+library(TDPanalysis)
+```
+
+#DATASET
+
+Obtain dataset from KSU performance test containing soybean data.
+
+## 2008 - 2021 data
+```{r}
+year <-  c("2008", "2009", "2010", "2011", "2012", "2013", "2014", "2015", "2016", "2017", "2018", "2019", "2020", "2021")
+
+ksu_08_21 <- data_frame()
+
+
+for(i in year) {
+  ksu_08_21 <- ksu_08_21 %>% 
+    bind_rows(readxl::read_excel(paste0("../Data/excel/KSU_performance_test/KSU_", i ,".xlsx"), sheet ="data") %>% 
+    left_join(readxl::read_excel(paste0("../Data/excel/KSU_performance_test/KSU_", i ,".xlsx"), sheet ="management")) %>%
+    left_join(readxl::read_excel(paste0("../Data/excel/KSU_performance_test/KSU_", i ,".xlsx"), sheet ="MG")) %>% 
+    mutate(site = as.character(site))) %>% 
+  drop_na(Maturity)
+}
+
+ksu_2 <- ksu_08_21 %>% 
+  mutate( `yield (kg/ha)` = (as.numeric(`yield (bu/a)`) * 60 *0.453592)/ 0.404686) %>% 
+  select(County, site, year, water_management, 
+         brand, name, Maturity, 
+         `yield (kg/ha)`, `PAVG (%)`, `MAT (date)`, `LDG (score)`, `HT (in)`, 
+         water, SowDate, `population (seeds/ft)`, harvest, 
+         `N (lbs)`, `P (lbs)`, `K (lbs)`, `population (seeds/ac)`, harvest) %>% 
+  rename("water (in)" = water,
+         "Harvest" = harvest) %>% 
+  mutate(`population (seeds/m2)` = (`population (seeds/ac)`/4046.86))
+
+write.csv(ksu_08_21, file = "../Data/ksu_08_21.csv", row.names = F)
+  
+```
+
+## 2000 - 2007 data
+```{r}
+ksu_2000_07 <- readxl::read_excel("../Data/excel/KSU_performance_test/Copy of KSU_soybean2000_2013.xlsx",
+                                  sheet = "Variety Data") %>% 
+  left_join(readxl::read_excel("../Data/excel/KSU_performance_test/Copy of KSU_soybean2000_2013.xlsx", 
+                               sheet = "Planting Date")) %>% 
+  filter(YEAR == 2000 |
+           YEAR == 2001 |
+           YEAR == 2002 |
+           YEAR == 2003 |
+           YEAR == 2004 |
+           YEAR == 2005 |
+           YEAR == 2006 |
+           YEAR == 2007) %>% 
+  rename("year" = YEAR, 
+         "County" = LOC,
+         "brand" = BRAND,
+         "name" = NAME,
+         "Maturity" = MG, 
+         "HT (in)" = `PHT (in)`, 
+         "site" = CITY,
+         "water_management" = TYPE, 
+         "SowDate" = PLANT_DATE,
+         "N (lbs)" = N, 
+         "P (lbs)" = P, 
+         "K (lbs)" = K,
+         "yield (bu/a)" = `YIELD (bu/a)`)
+
+ksu_1 <- ksu_2000_07 %>% 
+  drop_na(Maturity) %>% 
+  drop_na(SowDate) %>% 
+  drop_na(`population (seeds/ft)`) %>% 
+  mutate(water_management =case_when(water_management == "IRRIGATED" ~ "Irrigated", 
+                                     TRUE ~ "Dryland"),
+         `water (in)` = case_when(water_management == "Dryland" ~ "0",
+                                  water_management == "Irrigated" ~ water,
+                                  TRUE ~ "99999"),
+         `yield (kg/ha)` = (as.numeric(`yield (bu/a)`) * 60 *0.453592)/ 0.404686) %>% 
+  mutate(`water (in)` = as.numeric(`water (in)`),
+         MAT1 = paste0(year, "-08-30"),
+         MAT1 = as.Date(MAT1),
+         `MAT (date)` = as.Date(`MAT (days after 8/30)`, origin = MAT1),
+         `population (seeds/ft)` = as.numeric(`population (seeds/ft)`)) %>% 
+  mutate(`population (seeds/m2)` = (`population (seeds/ft)`/0.23322576)) %>% 
+  select(County, site, year, 
+         brand, name, Maturity, 
+         water_management, `water (in)`,
+         SowDate,  `population (seeds/ft)`, 
+         Harvest,
+         `population (seeds/m2)`,
+         `yield (bu/a)`, `yield (kg/ha)`, `MAT (date)`,`HT (in)`, `LDG (score)`, `N (lbs)`, `P (lbs)`, `K (lbs)`) 
+
+write.csv(ksu_2000_07, file = "../Data/excel/ksu_2000_07.csv", row.names = F)
+
+```
+
+
+## KSU performance test dataset
+
+Merge all the datasets
+```{r}
+### Complete dataset KSU performance test ###
+ksu_performance <- ksu_1 %>% 
+  bind_rows(ksu_2) %>% 
+  mutate(`HT (cm)` = `HT (in)` * 2.54,
+         Nitrogen = `N (lbs)` * 1.12085,
+         Phosporus = `P (lbs)` * 1.12085,
+         Potasium = `K (lbs)` * 1.12085,
+         Irrigation = `water (in)` * 25.4,
+         `population (seeds/m2)` = ifelse(is.na(`population (seeds/ft)`), 
+                                          `population (seeds/ac)`/4046.86, 
+                                          `population (seeds/ft)`/0.23322576 )) %>% 
+  drop_na(`yield (kg/ha)`)
+write.csv(ksu_performance, file = "../Data/excel/ksu_performance.csv", row.names = F)
+```
+
+
+```{r}
+ksu_performance <- ksu_performance %>% 
+  mutate(lat = case_when(site == "Topeka" & water_management == "Dryland" ~ 39.047119,
+                         site == "Topeka" & water_management == "Dryland" ~ 39.076541,
+                         site == "Emmett" ~ 39.307133,
+                         site == "Ottawa" ~ 38.537958,
+                         site == "Parsons" ~ 37.220435,
+                         site == "Pittsburg" ~ 37.411305,
+                         site == "McCune" ~ 37.354699,
+                         site == "Erie" ~ 37.569561,
+                         site == "Scandia" ~ 39.4804,
+                         site == "Belleville" ~ 39.83127549,
+                         site == "Assaria" ~ 38.680259,
+                         site == "Hutchinson" ~ 38.060944,
+                         site == "Garden city" ~ 37.98960836,
+                         site == "Watervielle" ~ 39.691481,
+                         site == "Hesston" ~ 38.132188, 
+                         site == "Colby" ~ 39.393922,
+                         site == "Columbus" ~ 37.169282,
+                         site == "Powhattan" ~ 39.761553,
+                         site == "Hays" ~ 38.8586476,
+                         site == "Tribune" ~ 38.4698630,
+                         site == "St. John" ~ 38.001876,
+                         site == "Centralia" ~ 39.725049,
+                         site == "Onaga" ~ 39.489541,
+                         site == "Rossville" ~ 39.135749,
+                         site == "Kiro" ~ 39.095024,
+                         site == "Riley" ~ 39.299544),
+         lon = case_when(site == "Topeka" & water_management == "Dryland" ~ -95.675289,
+                         site == "Topeka" & water_management == "Dryland" ~ -95.770844,
+                         site == "Emmett" ~ -96.056135,
+                         site == "Ottawa" ~ -95.240096,
+                         site == "Parsons" ~ -95.171074,
+                         site == "Pittsburg" ~ -94.705186,
+                         site == "McCune" ~ -95.016616,
+                         site == "Erie" ~ -95.244212,
+                         site == "Scandia" ~ -97.5019,
+                         site == "Belleville" ~ -97.84303992,
+                         site == "Assaria" ~ -97.605238,
+                         site == "Hutchinson" ~ -97.930229,
+                         site == "Garden city" ~ -100.8151129,
+                         site == "Watervielle" ~ -96.74746,
+                         site == "Hesston" ~ -97.441313, 
+                         site == "Colby" ~ -101.063474,
+                         site == "Columbus" ~ -94.84417108,
+                         site == "Powhattan" ~ -95.633646,
+                         site == "Hays" ~ -99.326287089,
+                         site == "Tribune" ~ -101.752550,
+                         site == "St. John" ~ -98.760291,
+                         site == "Centralia" ~ -96.12727699,
+                         site == "Onaga" ~ -96.169996,
+                         site == "Rossville" ~ -95.951594,
+                         site == "Kiro" ~ -95.796113,
+                         site == "Riley" ~ -96.830955))
+
+coord_testing <- ksu_performance %>% 
+  filter(water_management == "Dryland") %>% 
+  drop_na(`population (seeds/m2)`) %>% 
+  drop_na(SowDate) %>% 
+  group_by(site, lon, lat) %>% 
+  summarise() 
+
+## save complete dataset
+write.csv(coord_testing, file = "../Data/excel/coord_testing.csv")
+  
+```
+
+# Apsim excel
+```{r}
+ksu_performance$`population (seeds/m2)` <- round(ksu_performance$`population (seeds/m2)` ,
+                                                 digits = 0)
+
+test_sim <- ksu_performance %>% 
+  filter(water_management == "Dryland") %>% 
+  mutate(MG = Maturity) %>% 
+  separate(MG, into = c("MG", "MG2")) %>% 
+  filter(MG2 != 4 &
+           MG2 != 5 &
+           MG2 != 6) %>% 
+  mutate(MG2 = ifelse(is.na(MG2), 0, MG2),
+         # MG: Maturity group | MG2: Relative maturity
+         genotype = case_when(MG == 2 & MG2 <= 3 ~ "Generic_MG2",
+                               MG == 2 & MG2 > 3 ~ "Generic_MG3",
+                               MG == 3 & MG2 <= 3 ~ "Generic_MG3",
+                               MG == 3 & MG2 > 3 ~ "Generic_MG4",
+                               MG == 4 & MG2 <= 3 ~ "Generic_MG4",
+                               MG == 4 & MG2 > 3 ~ "Generic_MG5",
+                               MG == 5 & MG2 <= 3 ~ "Generic_MG5",
+                               MG == 5 & MG2 > 3~ "Generic_MG6",
+                               TRUE ~ "NA")) %>% 
+
+  mutate(genotype1 = case_when(MG == 3  ~ "Generic_MG3",
+                              MG == 4 ~ "Generic_MG4",
+                              MG == 5 ~ "Generic_MG5",
+                              MG == 2 ~ "Generic_MG2",
+                              TRUE ~ "NA"), 
+         
+         SowDate = as.character(tolower(format(SowDate, "%d-%b"))),
+         Harvest = as.character(tolower(format(Harvest, "%d-%b"))),
+         
+         ID = paste(paste0(substr(site, 1, 3), 
+                           substr(year, 3,4)),
+                    substr(genotype, 9, 11), 
+                    `population (seeds/m2)`,
+                    SowDate,
+                    Harvest,
+                    sep = "_"))%>% 
+  drop_na(SowDate) %>% 
+  drop_na(`population (seeds/m2)`) %>% 
+  drop_na(Maturity) %>% 
+  drop_na(genotype) %>% 
+  drop_na(site) %>% 
+  select(ID, genotype, site, year, SowDate, Harvest, `population (seeds/m2)`, genotype,Maturity, `yield (kg/ha)`)
+ 
+test_sim %>% 
+  separate(Harvest, into = c("day", "month"), sep = "-") %>% 
+  mutate(month = as.factor(month),
+         #month = fct_relevel(month, "mar", "apr", "may", "jun", "jul")
+         ) %>% 
+  ggplot(aes(month)) + 
+  geom_boxplot()
+
+write.csv(test_sim, file = "../Data/excel/KSU_performance_test/test_sim.csv")         
+  
+```
+
+
+#WEATHER
+# 1. Download the weather
+```{r}
+### Download the weather data
+met_testing <- coord_testing %>% 
+  group_by(site) %>% 
+  mutate(weather = pmap(.l = list(site, lon, lat),
+                        # Mesonet package #
+                        .f = ~get_iem_apsim_met(lonlat = c(..2, ..3),                
+                                               dates = c("1981-01-01","2022-01-01"),
+                                               wrt.dir = "../Markdown/weather_ksu_testing/",
+                                               state = "kansas",
+                                               filename = paste0(..1, ".met"))))
+
+
+### Add dates and weeks
+met_testing <- met_testing %>% 
+  unnest(weather) %>% 
+  mutate(date = as.Date(day, origin = paste0((year - 1), "-12-31" )),
+         weeks = as.numeric(format(as.Date(date, tryformat="%d/%m/%Y"),"%W")),
+         mw = min(weeks),
+         week = ifelse(mw == 0, weeks + 1, weeks))       
+
+### check the weather data
+met_testing %>% 
+  filter( site != "Ottawa" |               
+          date != '1995-05-24') %>% 
+  filter(site != "Ottawa" |             
+          date != '2000-06-19') %>% 
+  ggplot(aes(x = week, y = maxt))+
+  geom_point(color = "tomato")+
+  geom_point(aes(x = week, y = mint), color = "blue")
+
+
+met_testing %>% 
+  filter( site != "Ottawa" |               
+          date != '1995-05-24') %>% 
+  filter(site != "Ottawa" |                     
+          date != '2000-06-19') %>% 
+  ggplot(aes(x = week, y = rain))+
+  geom_point(color = "blue")+
+  facet_wrap(~site)
+
+met_testing %>% 
+  filter( site != "Ottawa" |               
+          date != '1995-05-24') %>% 
+  filter(site != "Ottawa" |                      
+          date != '2000-06-19') %>% 
+  ggplot(aes(x = week, y = rad)) +
+  geom_point(aes(color = site), alpha = 0.5, show.legend = FALSE)+
+  facet_wrap(~site)
+
+write.csv("../Data/excel/met_testing.csv", row.names = F)
+
+```
+
+## 1.1. Problems with radiation 
+```{r}
+library(oce)
+
+## mesonet
+Riley <- 
+read_apsim_met("Riley.met", src.dir = "../Markdown/weather_ksu_testing/", verbose = TRUE)
+
+## nasa power
+riley_rad <- read.csv("../Data/Riley.csv") %>% 
+  mutate(site = "Riley") %>% 
+  select(site, year, day, radn) %>% 
+  mutate(date = as.Date(riley_rad$day, origin = paste0((riley_rad$year - 1), "-12-31"))) %>% 
+  filter(year != 1980) %>% 
+  rename("rad1" = radn) %>% 
+  select(year, day, rad1)
+
+## Join nasapower with mesonet
+Riley.met <- Riley %>% 
+  left_join(riley_rad) %>% 
+  rename("eliminar" = radn) %>% 
+  rename(radn = "rad1")
+
+Riley.met <- as.data.frame(Riley) %>% 
+  left_join(riley_rad) %>% 
+  rename("eliminar" = radn) %>%   
+  rename(radn = "rad1") %>% 
+  select(year, day, radn, maxt, mint, rain) %>% 
+  drop_na(radn) 
+
+met_testing %>% 
+  group_by(site) %>% 
+  rename("radn1" = radn) %>% 
+ # left_join(riley_rad) %>% 
+  filter(site == "Riley" ) %>% 
+  filter(year != 1981 &
+           year != 1982 &
+           year != 1983)
+  
+
+write_apsim_met(Riley.met, wrt.dir = "../Markdown/weather_ksu_testing/", filename = NULL)
+
+
+### Centralia
+Centralia <- read_apsim_met("Centralia.met", src.dir = "../Markdown/weather_ksu_testing/", verbose = TRUE)
+
+
+centralia_rad <- read.csv("../Data/Centralia.csv") %>% 
+  select(year, day, radn) %>% 
+  filter(year != 1980) %>% 
+  rename("rad1" = radn) 
+
+
+Centralia.met <- as.data.frame(Centralia) %>% 
+  left_join(centralia_rad) %>% 
+  rename("eliminar" = radn) %>% 
+  rename(radn = "rad1") %>% 
+  select(year, day, radn, maxt, mint, rain) %>% 
+  drop_na(radn)
+
+
+write_apsim_met(Centralia.met, wrt.dir = "../Markdown/weather_ksu_testing/", filename = NULL)
+
+#### Belleville
+Belleville  <- 
+read_apsim_met("Belleville.met", src.dir = "../Markdown/weather_ksu_testing/", verbose = TRUE)
+
+
+belleville_rad <- read.csv("../Data/Belleville.csv") %>% 
+  select(year, day, radn) %>% 
+  filter(year != 1980) %>% 
+  rename("rad1" = radn) 
+
+Belleville.met <- as.data.frame(Belleville) %>% 
+  left_join(belleville_rad) %>% 
+  rename("eliminar" = radn) %>% 
+  rename(radn = "rad1") %>% 
+  select(year, day, radn, maxt, mint, rain) %>% 
+  drop_na(radn)
+
+
+write_apsim_met(Belleville.met, wrt.dir = "../Markdown/weather_ksu_testing/", filename = NULL)
+
+
+#### Hays
+Hays  <- 
+read_apsim_met("Hays.met", src.dir = "../Markdown/weather_ksu_testing/", verbose = TRUE)
+
+
+hays_rad <- read.csv("../Data/Hays.csv") %>% 
+  select(year, day, radn) %>% 
+  filter(year != 1980) %>% 
+  rename("rad1" = radn) 
+
+Hays.met <- as.data.frame(Hays) %>% 
+  left_join(hays_rad) %>% 
+  rename("eliminar" = radn) %>% 
+  rename(radn = "rad1") %>% 
+  select(year, day, radn, maxt, mint, rain) %>% 
+  drop_na(radn)
+
+class(Hays.met)
+write_apsim_met(Hays.met, wrt.dir = "../Markdown/weather_ksu_testing/", filename = NULL)
+```
+
+
+```{r}
+coord_testing$lat<-round(coord_testing$lat, digits = 1)
+coord_testing$lon<-round(coord_testing$lon, digits = 1)
+
+coord_testing <- split(coord_testing, coord_testing$site)
+
+### download weather data
+met_testing <-lapply(coord_testing, function(A)  get_iem_apsim_met(lonlat =c(mean(A$lon), mean(A$lat )),
+                                                             dates = c("1981-01-01","2022-01-01"),
+                                                             wrt.dir = ".",
+                                                             state = "Kansas",
+                                                             filename= paste0(A$site[1],".met")))
+
+### group the data in weeks
+met_testing <- bind_rows(met_testing, .id = "site") 
+
+met_testing <-as.data.frame(met_testing)
+
+met_testing$date <- as.Date(met_testing$day, origin = paste0((met_testing$year - 1), "-12-31"))
+
+met_testing$weeks <-as.numeric(format(as.Date(met_testing$date, tryformat="%d/%m/%Y"),"%W"))
+
+met_testing %>% 
+  filter(site != "Ottawa" |
+           date != "1995-05-24") %>% 
+  filter(site != "Ottawa" |
+           date != "2000-06-19") %>% 
+
+  ggplot()+
+  geom_point(aes(x = weeks, y = maxt), 
+             color = "tomato", 
+             alpha = 0.5)+
+    
+  geom_point(aes(x = weeks, y = mint),
+             color = "blue", 
+             alpha = 0.5)+
+    
+ # xlim(20, 25)+
+  facet_wrap(~site)+
+  theme_bw()
+
+met_testing %>% 
+  filter(site == "Centralia" |
+           site == "Hays" |
+           site == "Riley") %>% 
+
+  ggplot()+
+  geom_point(aes(x = weeks, y = radn), 
+             alpha = 0.5)+
+    
+ # xlim(20, 25)+
+  facet_grid(~site)+
+  theme_bw()
+
+```
+
+
+
+
+
+
+```{r}
+met_testing_rad <-lapply(coord_testing, function(A) {
+  get_power_apsim_met(lonlat =c(mean(A$lon), mean(A$lat )),
+                      dates = c("1981-01-01","2022-01-01"))})
+```
+
+
+
+#2. Clusters
+##2.1. Precipitation - growing season
+```{r}
+#### clusters data frame ####
+
+met_pp_test# <- 
+met_testing %>% 
+  #month of the growing season
+  filter(str_detect(date, "-04-|-05-|-06-|-07-|-08-|-09-|-10-")) %>% 
+  filter(week != 14 & week != 45) %>%
+  
+  group_by(site, year, week) %>% 
+ 
+  summarise(tmax_mean = mean(maxt),
+            tmin_mean = mean(mint),
+            pp_sum = sum(rain)) %>% 
+  mutate(pp_acum = cumsum(pp_sum)) %>% 
+  
+  ungroup(year, week) %>% 
+  select(site, year, week, pp_acum) %>% 
+  
+  pivot_wider(values_from = pp_acum, names_from = week) %>% 
+  select(3:32) %>% 
+  nest() %>% 
+  #creating the PP clusters
+  mutate(nbclust = data %>% map(~ NbClust(data = .,distance = "euclidean", 
+                                          min.nc = 2, max.nc = 6, method="kmeans", 
+                                          index = "silhouette"))) %>% 
+  
+  mutate(nc = nbclust %>% map_dbl(~ .$Best.nc[1]),
+         best.part = nbclust %>% map(~ .$Best.partition)) %>% 
+  
+  mutate(data2 = pmap(.l = list(data, best.part),
+                      .f = ~ ..1 %>% 
+                        mutate(cluster = ..2, .before = 1) %>% 
+                        pivot_longer(cols = 2:31, names_to = "week", values_to = "pp_acum") %>% 
+                        group_by(cluster, week) %>% 
+                        summarise(pp_acum = mean(pp_acum))))
+                        
+#### plot ####                
+plot_met_pp_test <- 
+met_pp_test %>% 
+   filter(site == "Assaria" |
+             site == "Belleville" |
+             site == "Columbus" |
+             site == "Erie" |
+             site == "Kiro" |
+             site == "McCune" |
+             site == "Onaga" |
+             site == "Ottawa" |
+             site == "Parsons" |
+             site == "Pittsburg" |
+             site == "Riley" |
+             site == "Rossville" |
+             site == "Topeka") %>% 
+  unnest(data2) %>% 
+  mutate(cluster = as.factor(cluster)) %>%
+  
+  ggplot(aes(x = week, y = pp_acum, group = cluster))+
+  geom_line(aes(color = cluster, linetype = cluster), size = 1.5)+
+  facet_wrap(~site, ncol = 3)+
+
+  labs( x = "Week of the year",
+        y = "Accumulated precipitation (mm)")+
+  
+  theme_bw() +
+  theme(panel.grid = element_blank(),
+        strip.background = element_rect(fill = "#f5f5f5"),
+        strip.text = element_text(face = "italic", size = 12, hjust = 0.5),
+        text = element_text(size = 12),
+        legend.title = element_text(), legend.position = "bottom",
+        axis.ticks.length=unit(-0.10, "cm"), legend.background = element_blank(),
+        axis.text.x = element_text(margin=unit(c(0.2,0.2,0.2,0.2), "cm"),angle = 65, size = 10),
+        axis.text.y = element_text(margin=unit(c(0.5,0.5,0.5,0.5), "cm"), size = 10))
+
+ggsave("../Output/plot_met_pp_test.tiff", height = 11, width = 14)
+
+```
+
+## 2.2.1. Temp max J- A - 1/2 Set
+```{r}
+#### clusters data frame ####
+met_temp_test_JA2 <- met_testing %>% 
+  #month of the growing season
+  filter(str_detect(date, "-07-|-08-|-09-")) %>% 
+  filter(week != 27 & 
+           week != 38 &
+           week != 39 &
+           week != 40 &
+           week != 41) %>%
+  
+  group_by(site, year, week) %>% 
+ 
+  summarise(tmax_mean = mean(maxt),
+            tmin_mean = mean(mint),
+            pp_sum = sum(rain)) %>% 
+  
+  ungroup(year, week) %>% 
+  select(site, year, week, tmax_mean) %>% 
+  
+  pivot_wider(values_from = tmax_mean, names_from = week) %>% 
+  select(3:12) %>% 
+  nest() %>% 
+  #creating the Tmax clusters
+  mutate(nbclust = data %>% map(~ NbClust(data = .,distance = "euclidean", 
+                                          min.nc = 2, max.nc = 6, method="kmeans", 
+                                          index = "silhouette"))) %>% 
+  
+  mutate(nc = nbclust %>% map_dbl(~ .$Best.nc[1]),
+         best.part = nbclust %>% map(~ .$Best.partition)) %>% 
+  
+  mutate(data2 = pmap(.l = list(data, best.part),
+                      .f = ~ ..1 %>% 
+                        mutate(cluster = ..2, .before = 1) %>% 
+                        pivot_longer(cols = 2:11, names_to = "week", values_to = "tmax") %>% 
+                        group_by(cluster, week) %>% 
+                        summarise(tmax = mean(tmax))))
+                        
+#### plot ####                 
+plot_met_temp_testJA2 <- 
+  met_temp_test_JA2 %>% 
+    filter(site == "Assaria" |
+             site == "Belleville" |
+             site == "Columbus" |
+             site == "Erie" |
+             site == "Kiro" |
+             site == "McCune" |
+             site == "Onaga" |
+             site == "Ottawa" |
+             site == "Parsons" |
+             site == "Pittsburg" |
+             site == "Riley" |
+             site == "Rossville" |
+             site == "Topeka") %>% 
+  unnest(data2) %>% 
+  mutate(cluster = as.factor(cluster)) %>% 
+  
+  ggplot(aes(x = week, y = tmax, group = cluster))+
+  geom_point(aes(color = cluster), alpha = 0.5)+
+  geom_line(aes(color = cluster))+
+  
+  ylim(20,40)+
+  facet_wrap(~site)+
+  
+  labs( x = "Week of the year",
+        y = "Tmax (°C)")+
+  
+  theme_bw() +
+  theme(panel.grid = element_blank(),
+        strip.background = element_rect(fill = "#f5f5f5"), strip.text = element_text(face = "italic", size = 11, hjust = 0.5),
+        text = element_text(size = 12),
+       # legend.title = element_text(Cluster), legend.position = c(0.7,0.8),
+        axis.ticks.length=unit(-0.15, "cm"), legend.background = element_blank(),
+        axis.text.x = element_text(margin=unit(c(0.5,0.5,0.5,0.5), "cm"), size = 12, angle = 65),
+        axis.text.y = element_text(margin=unit(c(0.5,0.5,0.5,0.5), "cm"), size = 12))
+
+
+ggsave("../Output/plot_met_temp_testJA2.tiff", height = 8, width = 9)
+
+```
+
+## 2.2.2. Temp max J- A - S
+```{r}
+#### creating the clusters
+
+met_temp_test #<- 
+met_testing %>% 
+  filter(str_detect(date, "-07-|-08-|-09-")) %>% 
+  filter(week != 27 & week != 41) %>%
+  
+  group_by(site, year, week) %>% 
+ 
+  summarise(tmax_mean = mean(maxt),
+            tmin_mean = mean(mint),
+            pp_sum = sum(rain)) %>% 
+  
+  ungroup(year, week) %>% 
+  select(site, year, week, tmax_mean) %>% 
+  
+  pivot_wider(values_from = tmax_mean, names_from = week) %>% 
+  select(3:15) %>% 
+  nest() %>% 
+  mutate(nbclust = data %>% map(~ NbClust(data = .,distance = "euclidean", 
+                                          min.nc = 2, max.nc = 6, method="kmeans", 
+                                          index = "silhouette"))) %>% 
+  
+  mutate(nc = nbclust %>% map_dbl(~ .$Best.nc[1]),
+         best.part = nbclust %>% map(~ .$Best.partition)) %>% 
+  
+  mutate(data2 = pmap(.l = list(data, best.part),
+                      .f = ~ ..1 %>% 
+                        mutate(cluster = ..2, .before = 1) %>% 
+                        pivot_longer(cols = 2:14, names_to = "week", values_to = "tmax") %>% 
+                        group_by(cluster, week) %>% 
+                        summarise(tmax = mean(tmax))))
+                        
+                   
+plot_met_temp_test# <- 
+met_temp_test %>% 
+  filter(site == "Assaria" |
+             site == "Belleville" |
+             site == "Columbus" |
+             site == "Erie" |
+             site == "Kiro" |
+             site == "McCune" |
+             site == "Onaga" |
+             site == "Ottawa" |
+             site == "Parsons" |
+             site == "Pittsburg" |
+             site == "Riley" |
+             site == "Rossville" |
+             site == "Topeka") %>% 
+  unnest(data2) %>% 
+  mutate(cluster = as.factor(cluster)) %>% 
+  ggplot(aes(x = week, y = tmax, group = cluster))+
+  geom_point(aes(color = cluster), alpha = 0.5)+
+  geom_line(aes(color = cluster))+
+  ylim(10,40)+
+  facet_wrap(~site)+
+  theme_bw() +
+  theme(panel.grid = element_blank(),
+        strip.background = element_rect(fill = "#f5f5f5"), strip.text = element_text(face = "italic", size = 11, hjust = 0.1),
+        text = element_text(size = 12),
+       # legend.title = element_text(Cluster), legend.position = c(0.7,0.8),
+        axis.ticks.length=unit(-0.15, "cm"), legend.background = element_blank(),
+        axis.text.x = element_text(margin=unit(c(0.5,0.5,0.5,0.5), "cm")),
+        axis.text.y = element_text(margin=unit(c(0.5,0.5,0.5,0.5), "cm"), size = 12))
+
+ggsave("../Output/plot_met_temp_test.tiff", height = 8, width = 9)
+
+
+```
+
+## 2.2.3. Temp max J- A 
+```{r}
+#### creating the clusters
+
+met_temp_testJA <- 
+met_testing %>% 
+  filter(str_detect(date, "-07-|-08-")) %>% 
+  filter(week != 27 & week != 36) %>%
+  
+  group_by(site, year, week) %>% 
+ 
+  summarise(tmax_mean = mean(maxt),
+            tmin_mean = mean(mint),
+            pp_sum = sum(rain)) %>% 
+  
+  ungroup(year, week) %>% 
+  select(site, year, week, tmax_mean) %>% 
+  
+  pivot_wider(values_from = tmax_mean, names_from = week) %>% 
+  select(3:10) %>% 
+  nest() %>% 
+  mutate(nbclust = data %>% map(~ NbClust(data = .,distance = "euclidean", 
+                                          min.nc = 2, max.nc = 6, method="kmeans", 
+                                          index = "silhouette"))) %>% 
+  
+  mutate(nc = nbclust %>% map_dbl(~ .$Best.nc[1]),
+         best.part = nbclust %>% map(~ .$Best.partition)) %>% 
+  
+  mutate(data2 = pmap(.l = list(data, best.part),
+                      .f = ~ ..1 %>% 
+                        mutate(cluster = ..2, .before = 1) %>% 
+                        pivot_longer(cols = 2:9, names_to = "week", values_to = "tmax") %>% 
+                        group_by(cluster, week) %>% 
+                        summarise(tmax = mean(tmax))))
+                        
+                   
+plot_met_temp_testJA<- met_temp_testJA %>% 
+  unnest(data2) %>% 
+  #mutate(cluster = as.numeric(cluster)) %>% 
+  ggplot(aes(x = week, y = tmax, group = cluster))+
+  geom_point(aes(color = cluster), alpha = 0.5)+
+  geom_line(aes(color = cluster))+
+  ylim(15,40)+
+  facet_wrap(~site)+
+  theme_bw() +
+  theme(panel.grid = element_blank(),
+        strip.background = element_rect(fill = "#f5f5f5"), strip.text = element_text(face = "italic", size = 11, hjust = 0.1),
+        text = element_text(size = 12),
+       # legend.title = element_text(Cluster), legend.position = c(0.7,0.8),
+        axis.ticks.length=unit(-0.15, "cm"), legend.background = element_blank(),
+        axis.text.x = element_text(margin=unit(c(0.5,0.5,0.5,0.5), "cm")),
+        axis.text.y = element_text(margin=unit(c(0.5,0.5,0.5,0.5), "cm"), size = 12))
+
+
+ggsave("../Output/plot_met_temp_testJA.tiff", height = 8, width = 9)
+
+
+
+
+```
+
+# MEAN CC
+```{r}
+cc_prueba <- met_testing %>% 
+  filter(site == "Assaria" |
+             site == "Belleville" |
+             site == "Columbus" |
+             site == "Erie" |
+             site == "Kiro" |
+             site == "McCune" |
+             site == "Onaga" |
+             site == "Ottawa" |
+             site == "Parsons" |
+             site == "Pittsburg" |
+             site == "Riley" |
+             site == "Rossville" |
+             site == "Topeka") %>% 
+  #month of the growing season
+  mutate(season = case_when(date = str_detect(date, "-01-|-02-|-03-") ~ "Winter",
+                            date = str_detect(date, "-04-|-05-|-05-|-06-") ~ "Spring",
+                            date = str_detect(date, "-07-|-08-|-09-") ~ "Summer", 
+                            date = str_detect(date, "-10-|-11-|-12-") ~ "Fall",
+                            TRUE ~ "NA" )) %>% 
+  group_by(site, year, week, season) %>% 
+ 
+  summarise(pp_sum = sum(rain)) %>% 
+  ungroup(site, year, week, season) %>% 
+  group_by(site, season, week) %>% 
+  summarise(pp_sum = mean(pp_sum)) %>% 
+  mutate(pp_acum = cumsum(pp_sum)) %>% 
+  ungroup(week) %>% 
+  summarise(pp_acum_season = max(pp_acum)) %>% 
+  pivot_wider(names_from = season , values_from = pp_acum_season)
+
+climate_sim <- readxl::read_excel("../Data/excel/climate_sim.xlsx") %>% 
+  mutate(Winter_pp = Winter_pp *100,
+         Spring_pp = Spring_pp *100,
+         Summer_pp = Summer_pp *100,
+         Fall_pp = Fall_pp *100)
+
+cc_prueba <- climate_sim %>% 
+
+  left_join(cc_prueba) %>% 
+  group_by(site, Climate) %>% 
+  summarise(pp_winter = Winter_pp / Winter,
+            pp_spring = Spring_pp / Spring, 
+            pp_summer = Summer_pp / Summer, 
+            pp_fall = Fall_pp / Fall,
+            Winter_T = Winter_T,
+            Spring_T = Spring_T,
+            Summer_T = Summer_T,
+            Fall_T = Fall_T)
+
+write.csv(cc_prueba, file = "../Data/excel/cc_prueba.csv", row.names = F)
+```
+

@@ -1,0 +1,28 @@
+---
+title: "3) Metricas to evaluate validation of APSIM model"
+author: "Emmanuela van Versendaal"
+output: html_document
+---
+
+# Libraries
+```{r}
+library(tidyverse)
+library(metrica)
+library(wesanderson)
+names(wes_palettes)
+```
+
+
+# Upload data
+
+Upload dataset containing observed and simulated data to validate APSIM performance
+
+```{r}
+test_ObSim <-  read.csv("../Data/excel/KSU_performance_test/test_ObSim.csv")
+```
+
+# Evaluation
+```{r}
+
+```
+
